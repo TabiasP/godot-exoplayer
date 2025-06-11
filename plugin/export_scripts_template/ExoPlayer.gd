@@ -20,17 +20,34 @@ func _ready() -> void:
 		connect_plugin_signals()
 
 
-func create_exoplayer_instance(android_surface, video_uri) -> int:
+## create a exoplayer instance with a provided android surface, a video url and a WIDEVINE DRM LICENSE url
+## license url is optional
+func create_exoplayer_instance(android_surface, video_uri, license_url : String = "") -> int:
 	if _android_plugin and android_surface:
 		var new_id = current_id
+		##drm init has to be done before creating of the exoplayer
+		if license_url != "":
+			## setup needs a dictionary (hopefully godot dict works :D)
+			## dictionary contains of: userAgent, ascendonToken and entitlementToken and licenseURL
+			var widewine_dict : Dictionary = {
+												 "userAgent" : "Pitvision",
+												 "ascendonToken" : UserStore.user_data.subscriptionToken,
+												 "entitlementToken" : UserStore.user_data.entitlementToken,
+												 "licenseUrl" : license_url
+											 }
+			_android_plugin.setupWidevine(current_id, widewine_dict)
+
 		_android_plugin.createExoPlayerSurface(current_id,video_uri,android_surface)
+
+
 
 		players[new_id] = {
 			"is_ready": false,
 			"duration": -1.0,
 			"error": null,
 			"surface": android_surface,
-			"uri": video_uri
+			"uri": video_uri,
+			"license_url": license_url
 		}
 
 
@@ -75,6 +92,13 @@ func getPlayerVolume(id:int):
 	if _android_plugin:
 		return _android_plugin.getVolume(id)
 
+func getAvailableAudioTracks(id: int):
+	if _android_plugin:
+		return _android_plugin.getAudioTracks(id)
+
+func setAudioTrack(player_id: int, audioTrackIndex: int):
+	if _android_plugin:
+		_android_plugin.setAudioTrack(player_id, audioTrackIndex)
 
 #endregion
 
@@ -104,6 +128,8 @@ func setVideoResolution(id: int, width : int, height: int):
 	if _android_plugin and players.has(id):
 		_android_plugin.setResolution(id, width, height)
 	pass
+
+
 #endregion
 
 #region Signal Functions

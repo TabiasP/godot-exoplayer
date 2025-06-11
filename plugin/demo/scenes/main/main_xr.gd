@@ -3,6 +3,9 @@ extends Node3D
 
 @export var passthrough : bool = false
 @export var video_uri : String = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+@export var license_uri : String = ""
+
+@export var additionalHeaders : Dictionary[String, String]
 
 @onready var environment : Environment = $WorldEnvironment.environment
 
@@ -62,7 +65,7 @@ func create_android_surface():
 		if android_surface:
 			##create exoplayer using android plugin function
 			## if player_id = 0 -> failed to instantiate
-			player_id = ExoPlayer.create_exoplayer_instance(android_surface, video_uri)
+			player_id = ExoPlayer.create_exoplayer_instance(android_surface, video_uri,license_uri,additionalHeaders)
 			##call setup video controls function ont the viewport2din3D videocontrolui
 			## we need to pass the exoplayer id
 			if player_id > 0:

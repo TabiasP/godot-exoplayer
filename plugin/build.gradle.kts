@@ -9,14 +9,15 @@ val pluginPackageName = "org.godotengine.plugin.android.godot_exoplayer"
 
 android {
     namespace = pluginPackageName
-    compileSdk = 33
+    compileSdk = 35
 
     buildFeatures {
         buildConfig = true
     }
 
     defaultConfig {
-        minSdk = 21
+        minSdk = 24
+        targetSdk= 35
         manifestPlaceholders["godotPluginName"] = pluginName
         manifestPlaceholders["godotPluginPackageName"] = pluginPackageName
         buildConfigField("String", "GODOT_PLUGIN_NAME", "\"$pluginName\"")
@@ -32,12 +33,12 @@ android {
 }
 
 dependencies {
-    implementation("org.godotengine:godot:4.4.0.stable")
+    implementation("org.godotengine:godot:4.4.1.stable")
     // exoplayer dependencies
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
-    implementation("androidx.media3:media3-ui:1.4.1")
+    implementation("androidx.media3:media3-exoplayer:1.6.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.6.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.6.1")
+    implementation("androidx.media3:media3-ui:1.6.1")
 }
 
 // Set the archivesBaseName using the public API (requires the base plugin to be applied)

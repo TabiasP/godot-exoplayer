@@ -30,7 +30,6 @@ size = Vector3(10, 0.1, 10)
 
 [node name="MainXR" type="Node3D"]
 script = ExtResource("1_j6ddo")
-video_uri = "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd"
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_lkshg")
@@ -70,6 +69,7 @@ use_android_surface = true
 android_surface_size = Vector2i(1920, 1080)
 sort_order = -1
 enable_hole_punch = true
+XR_FB_composition_layer_secure_content/external_output = 1
 XR_FB_composition_layer_image_layout/vertical_flip = true
 quad_size = Vector2(1.6, 0.9)
 

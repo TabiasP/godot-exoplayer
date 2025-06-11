@@ -1,6 +1,5 @@
 package org.godotengine.plugin.android.godot_exoplayer
 
-import android.content.Context
 import android.util.Log
 import android.view.Surface
 import androidx.annotation.OptIn
@@ -10,6 +9,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.util.EventLogger
+import androidx.media3.common.util.Log as ExoLogger
+import org.godotengine.godot.Dictionary
 import org.godotengine.godot.Godot
 import org.godotengine.godot.plugin.GodotPlugin
 import org.godotengine.godot.plugin.SignalInfo
@@ -19,6 +21,10 @@ import java.util.concurrent.CountDownLatch
 class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
     override fun getPluginName() = BuildConfig.GODOT_PLUGIN_NAME
+
+    init {
+
+    }
 
     // Updated signal declaration with parameters
     override fun getPluginSignals(): MutableSet<SignalInfo> {
@@ -32,6 +38,8 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     // Keep track of multiple ExoPlayer instances by ID.
     private val exoPlayers = mutableMapOf<Int, ExoPlayer>()
 
+    // Map to store DRM Configuratrions keyed by Player ID
+    private val drmConfigurations = mutableMapOf<Int, Dictionary>()
 
 
     /**
@@ -49,9 +57,9 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         runOnUiThread {
             try {
                 // 1) If an ExoPlayer already exists for this id, release it first
+                ExoLogger.setLogLevel(ExoLogger.LOG_LEVEL_ALL)
                 exoPlayers[id]?.release()
 //                audioExtractors[id]?.reset()
-
 
 
                 // 3) Create a new ExoPlayer and use the audiosink
@@ -70,9 +78,42 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
                 // 4) Assign the provided Surface
                 newExoPlayer.setVideoSurface(surface)
                 newExoPlayer.addListener(createPlayerListener(id))
+                newExoPlayer.addAnalyticsListener(EventLogger())
 
                 // 5) Prepare the media
-                newExoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
+                var mediaItem = MediaItem.fromUri(videoUri)
+
+
+                // add a check if the player has a drm configuration
+                if (drmConfigurations.containsKey(id)){
+
+                    val dataDict = drmConfigurations[id]
+                    val licenseURL = dataDict?.get("licenseUrl") as String
+                    Log.v(pluginName, "Applying Widevine DRM configuration for ExoPlayer($id) with license URL: $licenseURL")
+
+                    val customHeaders = mutableMapOf<String, String>()
+                    dataDict.forEach { (key, value) ->
+                        if (key != "licenseUrl" && value is String) {
+                            customHeaders[key as String] = value
+                        }
+                    }
+
+
+                    // create drm config
+                    val drmConfig = MediaItem.DrmConfiguration
+                        .Builder(C.WIDEVINE_UUID)
+                        .setLicenseRequestHeaders(customHeaders)
+
+                        .setLicenseUri(dataDict?.get("licenseUrl") as String)
+                        .build()
+
+                    // create mediaitem with the drm config
+                    mediaItem = MediaItem.Builder().setUri(videoUri).setDrmConfiguration(drmConfig).build()
+                }
+
+                newExoPlayer.setMediaItem(mediaItem)
+
+
                 newExoPlayer.prepare()
 
                 // 6) (Optional) Start playback immediately
@@ -156,6 +197,91 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             } ?: Log.e(pluginName, "ExoPlayer($id) not found when attempting to set resolution")
         }
     }
+
+    /**
+     * Returns an array of strings representing all available audio tracks for the ExoPlayer with the given ID.
+     */
+    @UsedByGodot
+    fun getAudioTracks(id: Int): Array<Dictionary> {
+        val audioTracks = ArrayList<Dictionary>()
+        val latch = CountDownLatch(1)
+        runOnUiThread {
+            exoPlayers[id]?.let { player ->
+                val tracks = player.currentTracks
+                // Iterate over all track groups
+                for (group in tracks.groups) {
+                    if (group.type == C.TRACK_TYPE_AUDIO) {
+                        for (i in 0 until group.length) {
+                            val format = group.getTrackFormat(i)
+                            // Use language if available; if not, mark as undefined ("und")
+                            val language = format.language ?: "und"
+                            val channels = format.channelCount
+                            val sampleRate = format.sampleRate
+                            // Build a descriptive string (you can adjust the details as needed)
+                            val trackDict = Dictionary()
+                            trackDict["index"] = i
+                            trackDict["language"] = language
+                            trackDict["channels"] = channels
+                            trackDict["sampleRate"] = sampleRate
+                            audioTracks.add(trackDict)
+                        }
+                    }
+                }
+            }
+            latch.countDown()
+        }
+        latch.await()
+        return audioTracks.toTypedArray()
+    }
+    /**
+     * Function that sets the audio track for the ExoPlayer with the given ID based on the provided index.
+     * The index corresponds to the order of the audio tracks as returned by getAudioTracks.
+     */
+    @UsedByGodot
+    fun setAudioTrack(id: Int, audioTrackIndex: Int){
+        runOnUiThread{
+            val player = exoPlayers[id]
+            if (player == null) {
+                Log.e(pluginName, "ExoPlayer($id) not found when attempting to setAudioTrack")
+                return@runOnUiThread
+            }
+            val tracks = player.currentTracks
+            var mergedIndex: Int = 0
+            var selectedGroupIndex: Int? = null
+            var selectedTrackInGroup: Int? = null
+            // Iterate over audio groups and their tracks to locate the one at the given merged index.
+            for (groupIndex in tracks.groups.indices) {
+                val group = tracks.groups[groupIndex]
+                if (group.type == C.TRACK_TYPE_AUDIO) {
+                    for (trackIndex in 0 until group.length) {
+                        if (mergedIndex == audioTrackIndex) {
+                            selectedGroupIndex = groupIndex
+                            selectedTrackInGroup = trackIndex
+                            break
+                        }
+                        mergedIndex++
+                    }
+                    if (selectedGroupIndex != null) break
+                }
+            }
+            if (selectedGroupIndex == null || selectedTrackInGroup == null){
+                Log.e(pluginName, "Audio track index $audioTrackIndex not found for ExoPlayer($id)")
+                return@runOnUiThread
+            }
+
+            //retrieve the format of the selected track
+            val selectedFormat = tracks.groups[selectedGroupIndex].getTrackFormat(selectedTrackInGroup)
+            // Use the track's language metadata if available, otherwise default to "und" (undefined).
+            val selectedLanguage = selectedFormat.language ?: "und"
+
+            // Update the player's track selection parameters to select the desired audio track.
+            val currentParams = player.trackSelectionParameters
+            player.trackSelectionParameters = currentParams.buildUpon()
+                .setPreferredAudioLanguages(selectedLanguage).build()
+            Log.v(pluginName, "ExoPlayer($id) track selection updated to audio track $audioTrackIndex")
+        }
+    }
+
 
     /**
      * Set the volume of the ExoPlayer with the given ID.
@@ -247,6 +373,16 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         } ?: -1f
     }
 
+    /**
+     * Set a license URL for Widevine DRM.
+     *
+     */
+
+    @UsedByGodot
+    fun setupWidevine(id: Int, data : Dictionary ) {
+        drmConfigurations[id] = data
+
+    }
 
 
     /**
@@ -272,6 +408,33 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
                         val duration =
                             if (player.duration == C.TIME_UNSET) -1 else player.duration
                         Log.v(pluginName, "ExoPlayer($id) ready, duration: $duration")
+
+                        // SOME DEBUG INFOS
+                        val tracks = player.currentTracks
+                        val debugInfo = StringBuilder()
+                        debugInfo.append("ExoPlayer($id) debug info:\n")
+                        debugInfo.append("Total track groups: ${tracks.groups.size}\n")
+                        for (group in tracks.groups) {
+                            debugInfo.append("Track group (type: ${group.type}, length: ${group.length}):\n")
+                            for (i in 0 until group.length) {
+                                val format = group.getTrackFormat(i)
+                                debugInfo.append("  Track $i: mime=${format.sampleMimeType}, codecs=${format.codecs}, bitrate=${format.bitrate}bps")
+                                if (format.width > 0 && format.height > 0) {
+                                    debugInfo.append(", resolution=${format.width}x${format.height}")
+                                }
+                                if (group.type == C.TRACK_TYPE_VIDEO) {
+                                    debugInfo.append(", frameRate=${format.frameRate}")
+                                }
+                                if (group.type == C.TRACK_TYPE_AUDIO) {
+                                    debugInfo.append(", channels=${format.channelCount}, sampleRate=${format.sampleRate}")
+                                }
+                                debugInfo.append("\n")
+                            }
+                        }
+                        Log.v(pluginName, debugInfo.toString())
+
+                        //
+
                         emitSignal("on_player_ready", id, duration.toInt())
                     }
                 }

@@ -27,29 +27,29 @@ class GodotRendererFactory(private val context: Context) : RenderersFactory {
         renderers.add(
             /* TODO Add more stuff to the MediaCodecVideoRenderer constructor because I dont know
             what to put here yet except DEFAULT
-
              */
-            MediaCodecVideoRenderer(context, MediaCodecSelector.DEFAULT)
+            MediaCodecVideoRenderer(context, MediaCodecSelector.DEFAULT,)
+
         )
 
-        val teeProcessor = TeeAudioProcessor(audioSink)
-
-        // Create audio sink with our processor
-        val customAudioSink = DefaultAudioSink.Builder()
-            .setAudioProcessors(arrayOf(teeProcessor))
-            .build()
-
-        // Add audio renderer
-        renderers.add(
-            MediaCodecAudioRenderer(
-                context,
-                MediaCodecSelector.DEFAULT,
-                false,
-                eventHandler,
-                audioRendererEventListener,
-                customAudioSink
-            )
-        )
+//        val teeProcessor = TeeAudioProcessor(audioSink)
+//
+//        // Create audio sink with our processor
+//        val customAudioSink = DefaultAudioSink.Builder()
+//            .setAudioProcessors(arrayOf(teeProcessor))
+//            .build()
+//
+//        // Add audio renderer
+//        renderers.add(
+//            MediaCodecAudioRenderer(
+//                context,
+//                MediaCodecSelector.DEFAULT,
+//                false,
+//                eventHandler,
+//                audioRendererEventListener,
+//                customAudioSink
+//            )
+//        )
 
         return renderers.toTypedArray()
     }
