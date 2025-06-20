@@ -30,6 +30,8 @@ size = Vector3(10, 0.1, 10)
 
 [node name="MainXR" type="Node3D"]
 script = ExtResource("1_j6ddo")
+video_uri = "https://storage.googleapis.com/wvmedia/cenc/h264/tears/tears.mpd"
+license_uri = "https://proxy.uat.widevine.com/proxy?video_id=2015_tears&provider=widevine_test"
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_lkshg")
