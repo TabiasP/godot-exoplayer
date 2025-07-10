@@ -22,7 +22,7 @@ func _ready() -> void:
 
 ## create a exoplayer instance with a provided android surface, a video url and a WIDEVINE DRM LICENSE url
 ## license url is optional
-func create_exoplayer_instance(android_surface, video_uri, license_url : String = "", additional_headers: Dictionary = {}) -> int:
+func create_exoplayer_instance(android_surface, video_uri, license_url : String = "") -> int:
 	if _android_plugin and android_surface:
 		var new_id = current_id
 		##drm init has to be done before creating of the exoplayer
@@ -30,9 +30,9 @@ func create_exoplayer_instance(android_surface, video_uri, license_url : String 
 			## setup needs a dictionary (hopefully godot dict works :D)
 			## dictionary contains of: userAgent, ascendonToken and entitlementToken and licenseURL
 			var widewine_dict : Dictionary = {
+												 "userAgent" : "Pitvision",
 												 "licenseUrl" : license_url
 											 }
-			widewine_dict.merge(additional_headers)
 			_android_plugin.setupWidevine(current_id, widewine_dict)
 
 		_android_plugin.createExoPlayerSurface(current_id,video_uri,android_surface)

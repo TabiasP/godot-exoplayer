@@ -65,7 +65,7 @@ func create_android_surface():
 		if android_surface:
 			##create exoplayer using android plugin function
 			## if player_id = 0 -> failed to instantiate
-			player_id = ExoPlayer.create_exoplayer_instance(android_surface, video_uri,license_uri,additionalHeaders)
+			player_id = ExoPlayer.create_exoplayer_instance(android_surface, video_uri,license_uri)
 			##call setup video controls function ont the viewport2din3D videocontrolui
 			## we need to pass the exoplayer id
 			if player_id > 0:

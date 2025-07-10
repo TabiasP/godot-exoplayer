@@ -30,9 +30,7 @@ func create_exoplayer_instance(android_surface, video_uri, license_url : String 
 			## setup needs a dictionary (hopefully godot dict works :D)
 			## dictionary contains of: userAgent, ascendonToken and entitlementToken and licenseURL
 			var widewine_dict : Dictionary = {
-												 "userAgent" : "Pitvision",
-												 "ascendonToken" : UserStore.user_data.subscriptionToken,
-												 "entitlementToken" : UserStore.user_data.entitlementToken,
+												 "userAgent" : "Godot Test",
 												 "licenseUrl" : license_url
 											 }
 			_android_plugin.setupWidevine(current_id, widewine_dict)

@@ -60,18 +60,16 @@ scene_properties_keys = PackedStringArray("test_panel.gd")
 [node name="XROrigin3D" parent="." instance=ExtResource("2_be6s4")]
 
 [node name="BoneAttachment3D" parent="XROrigin3D/LeftTrackedHand/LeftHandHumanoid2/LeftHandHumanoid/Skeleton3D" index="2"]
-transform = Transform3D(0.0148923, 0.3927, 0.919546, -0.993092, 0.112853, -0.0321113, -0.116383, -0.912716, 0.391668, -0.0111001, 0.0429431, -0.171614)
+transform = Transform3D(0.01489234, 0.39270008, 0.919546, -0.9930924, 0.11285266, -0.03211129, -0.11638325, -0.91271573, 0.39166808, -0.01110013, 0.04294307, -0.17161417)
 
 [node name="BoneAttachment3D" parent="XROrigin3D/RightTrackedHand/RightHandHumanoid2/RightHandHumanoid/Skeleton3D" index="2"]
-transform = Transform3D(0.0190384, -0.392689, -0.919474, 0.993227, 0.112853, -0.0276318, 0.114616, -0.912721, 0.392177, 0.0111, 0.042943, -0.171613)
+transform = Transform3D(0.01903836, -0.39268863, -0.9194744, 0.99322706, 0.11285307, -0.027631793, 0.11461615, -0.91272074, 0.39217746, 0.011100034, 0.04294298, -0.17161338)
 
 [node name="CompLayer" type="OpenXRCompositionLayerQuad" parent="XROrigin3D"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.04548, -0.922102)
 use_android_surface = true
 android_surface_size = Vector2i(1920, 1080)
-sort_order = -1
 enable_hole_punch = true
-XR_FB_composition_layer_secure_content/external_output = 1
 XR_FB_composition_layer_image_layout/vertical_flip = true
 quad_size = Vector2(1.6, 0.9)
 
