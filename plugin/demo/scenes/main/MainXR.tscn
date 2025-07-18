@@ -30,8 +30,6 @@ size = Vector3(10, 0.1, 10)
 
 [node name="MainXR" type="Node3D"]
 script = ExtResource("1_j6ddo")
-video_uri = "https://storage.googleapis.com/wvmedia/cenc/h264/tears/tears.mpd"
-license_uri = "https://proxy.uat.widevine.com/proxy?video_id=2015_tears&provider=widevine_test"
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_lkshg")
@@ -69,7 +67,9 @@ transform = Transform3D(0.01903836, -0.39268863, -0.9194744, 0.99322706, 0.11285
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.04548, -0.922102)
 use_android_surface = true
 android_surface_size = Vector2i(1920, 1080)
+sort_order = -1
 enable_hole_punch = true
+XR_FB_composition_layer_secure_content/external_output = 1
 XR_FB_composition_layer_image_layout/vertical_flip = true
 quad_size = Vector2(1.6, 0.9)
 

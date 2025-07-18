@@ -32,7 +32,7 @@ func _ready() -> void:
 	
 	ExoPlayer.connect("player_ready",_on_player_ready)
 	ExoPlayer.connect("video_end",_on_video_end)
-	await get_tree().create_timer(2).timeout
+	await get_tree().create_timer(5).timeout
 	create_android_surface()
 	### play (id of player)
 	#_android_plugin.play(1)

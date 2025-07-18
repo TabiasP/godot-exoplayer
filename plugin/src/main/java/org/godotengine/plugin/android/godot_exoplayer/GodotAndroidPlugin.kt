@@ -1,6 +1,8 @@
 package org.godotengine.plugin.android.godot_exoplayer
 
 import android.content.Context
+import android.net.Uri
+import android.os.Handler
 import android.util.Log
 import android.view.Surface
 import androidx.annotation.OptIn
@@ -8,16 +10,58 @@ import androidx.media3.common.*
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.util.EventLogger
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
+import androidx.media3.database.DatabaseProvider
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
-import androidx.media3.exoplayer.drm.FrameworkMediaDrm
-import androidx.media3.exoplayer.drm.HttpMediaDrmCallback
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.datasource.cache.Cache
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.NoOpCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.DecoderCounters
+import androidx.media3.exoplayer.DecoderReuseEvaluation
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.audio.AudioRendererEventListener
+import androidx.media3.exoplayer.drm.DefaultDrmSessionManagerProvider
+import androidx.media3.exoplayer.metadata.MetadataOutput
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.text.TextOutput
+import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.common.util.Log as ExoLogger
 import org.godotengine.godot.*
 import org.godotengine.godot.plugin.*
+import java.io.File
+import java.net.CookieHandler
+import java.net.CookieManager
+import java.net.CookiePolicy
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 
+
+@UnstableApi
+private class CustomRenderersFactory : DefaultRenderersFactory {
+    constructor(context: Context) : super(context)
+
+    override fun createRenderers(eventHandler: Handler,
+                                 videoRendererEventListener : VideoRendererEventListener,
+                                 audioRendererEventListener : AudioRendererEventListener,
+                                 textRendererOutput : TextOutput,
+                                 metadataRendererOutput : MetadataOutput
+                        ) : Array<Renderer> {
+        var renderers = super.createRenderers(eventHandler, videoRendererEventListener, audioRendererEventListener, textRendererOutput, metadataRendererOutput)
+        val rendererList = ArrayList<Renderer>(listOf(*renderers))
+
+        renderers = rendererList.toTypedArray()
+        return renderers
+    }
+}
+@UnstableApi
 class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
     // --- Plugin name and signals ---
@@ -35,6 +79,12 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     private val exoPlayers = mutableMapOf<Int, ExoPlayer>()
     private val drmConfigurations = mutableMapOf<Int, Dictionary>()
 
+    // ---- Variables
+    private var downloadDirectory: File? = null
+    private var downloadCache: Cache? = null
+    private var databaseProvider : DatabaseProvider? = null
+
+
     // --- ExoPlayer Management ---
 
     @OptIn(UnstableApi::class)
@@ -44,40 +94,35 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             ExoLogger.setLogLevel(ExoLogger.LOG_LEVEL_ALL)
             exoPlayers[id]?.release()
 
-            val player = activity?.let { ExoPlayer.Builder(it).build() }
-                ?: return@runOnUiThread emitAndLogError(id, "Failed to create ExoPlayer for id $id")
+            val dataSourceFactory : DataSource.Factory = buildDataSourceFactory(activity as Context)
+            val uri = Uri.parse(videoUri)
+            val licenseUrl = drmConfigurations[id]?.get("licenseUrl") as? String ?: ""
+            // Requested to play the uri
+            val mediaItems = buildMediaItems(uri, licenseUrl)
 
+            // ------------------------------------------
+            // - Exoplayer
+            val playerBuilder : ExoPlayer.Builder = ExoPlayer.Builder(activity as Context)
+                .setMediaSourceFactory(buildMediaSourceFactory(activity as Context, dataSourceFactory))
+                .setRenderersFactory(CustomRenderersFactory(activity as Context,))
+
+            val player = playerBuilder.build()
+
+            player.setMediaItems(mediaItems)
             player.setVideoSurface(surface)
             player.addListener(createPlayerListener(id))
+            player.addAnalyticsListener(object : AnalyticsListener{
+                override fun onRenderedFirstFrame(
+                    eventTime: AnalyticsListener.EventTime,
+                    output: Any,
+                    renderTimeMs: Long
+                ) {
+                    Log.i("GodotVideoDebug", "Analytics: First frame rendered on $output")
+                }
+            })
+
             player.addAnalyticsListener(EventLogger())
 
-            // ---- BEGIN: DRM-specific setup ----
-            var mediaSourceFactory = DefaultMediaSourceFactory(activity as Context)
-            val mediaItem = MediaItem.fromUri(videoUri)
-
-            if (drmConfigurations.containsKey(id)){
-                val dataDict = drmConfigurations[id]
-                val licenseUrl = dataDict?.get("licenseUrl") as? String ?: ""
-                val customHeaders = mutableMapOf<String, String>()
-                dataDict?.forEach { (key, value) ->
-                    if (key != "licenseUrl" && value is String) {
-                        customHeaders[key as String] = value
-                    }
-                }
-                val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-                val drmCallback = HttpMediaDrmCallback(licenseUrl, httpDataSourceFactory)
-                customHeaders.forEach { (k,v) -> drmCallback.setKeyRequestProperty(k,v) }
-                val drmManager = DefaultDrmSessionManager.Builder()
-                    .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID) { FrameworkMediaDrm.newInstance(it) }
-                    .build(drmCallback)
-                mediaSourceFactory = mediaSourceFactory.setDrmSessionManagerProvider { drmManager }
-                Log.v(pluginName, "ExoPlayer($id) configured with Widevine DRM, license URL: $licenseUrl")
-            } else {
-                Log.v(pluginName, "\"No DRM config for ExoPlayer($id), using non-DRM MediaItem\"")
-            }
-            // ---- END: DRM-specific setup ----
-            val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
-            player.setMediaSource(mediaSource)
             player.prepare()
             exoPlayers[id] = player
 
@@ -255,23 +300,79 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
     // --- Helpers ---
 
-    private fun buildMediaItem(id: Int, videoUri: String): MediaItem {
-        val drmConfig = drmConfigurations[id]?.let { dataDict ->
-            val licenseURL = dataDict["licenseUrl"] as? String ?: ""
-            Log.v(pluginName, "Applying Widevine DRM for ExoPlayer($id), license: $licenseURL")
-            val headers = dataDict.entries.filter { it.key != "licenseUrl" && it.value is String }
-                .associate { it.key as String to it.value as String }
-            MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
-                .setMultiSession(true)
-                .setLicenseRequestHeaders(headers)
-                .setLicenseUri(licenseURL)
-                .build()
+
+
+    private fun buildMediaItems(uri: Uri, drmLicenseUrl: String): List<MediaItem> {
+        return listOf(buildMediaItem(uri, drmLicenseUrl))
+    }
+
+    private fun buildMediaItem(uri: Uri, drmLicenseUrl: String) : MediaItem {
+        val builder = MediaItem.Builder()
+            .setUri(uri)
+        if (drmLicenseUrl.isNotEmpty()) {
+            builder.setDrmConfiguration(
+                buildDrmConfiguration(Util.getDrmUuid("widevine"), drmLicenseUrl)
+            )
         }
-        return if (drmConfig != null)
-            MediaItem.Builder().setUri(videoUri).setDrmConfiguration(drmConfig).build()
-        else MediaItem.fromUri(videoUri).also {
-            Log.v(pluginName, "No DRM config for ExoPlayer($id), using plain MediaItem")
+        return builder.build()
+    }
+
+    private fun buildDrmConfiguration(uuid: UUID?, drmLicenseUrl: String) : MediaItem.DrmConfiguration? {
+        return uuid?.let { MediaItem.DrmConfiguration.Builder(it) }?.setLicenseUri(drmLicenseUrl)?.build()
+    }
+
+    private fun getHttpDataSourceFactory(context: Context): HttpDataSource.Factory {
+        val cookieManager = CookieManager()
+        cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ORIGINAL_SERVER)
+        CookieHandler.setDefault(cookieManager)
+        return DefaultHttpDataSource.Factory()
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun buildReadOnlyCacheDataSource(upstreamFactory: DefaultDataSource.Factory, cache: Cache): CacheDataSource.Factory {
+        return CacheDataSource.Factory()
+            .setCache(cache)
+            .setUpstreamDataSourceFactory(upstreamFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+    }
+
+    private fun getDownloadDirectory(context: Context): File {
+        if (downloadDirectory == null) {
+            downloadDirectory = context.getExternalFilesDirs(null)?.firstOrNull() ?: context.filesDir
         }
+        return downloadDirectory!!
+    }
+    private fun getDatabaseProvider(context: Context): DatabaseProvider {
+        if (databaseProvider == null) {
+            databaseProvider = StandaloneDatabaseProvider(context)
+        }
+        return databaseProvider!!
+    }
+
+    private fun getDownloadCache(context: Context): Cache {
+        if (downloadCache == null) {
+            val downloadContentDirectory = File(getDownloadDirectory(context), "downloads")
+            val cacheEvictor = NoOpCacheEvictor()
+            downloadCache = SimpleCache(
+                downloadContentDirectory,
+                cacheEvictor,
+                getDatabaseProvider(context)!!
+            )
+        }
+        return downloadCache!!
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun buildDataSourceFactory(context: Context): CacheDataSource.Factory {
+        val upStreamFactory : DefaultDataSource.Factory  = DefaultDataSource.Factory(context, getHttpDataSourceFactory(context))
+        return buildReadOnlyCacheDataSource(upStreamFactory, getDownloadCache(context))
+    }
+
+    private fun buildMediaSourceFactory(context: Context, dataSourceFactory: DataSource.Factory): MediaSource.Factory {
+        val drmSessionManagerProvider : DefaultDrmSessionManagerProvider = DefaultDrmSessionManagerProvider()
+        drmSessionManagerProvider.setDrmHttpDataSourceFactory(getHttpDataSourceFactory(context))
+        return DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory).setDrmSessionManagerProvider(drmSessionManagerProvider)
     }
 
     private fun <T> runAndWaitUI(action: () -> T): T {
