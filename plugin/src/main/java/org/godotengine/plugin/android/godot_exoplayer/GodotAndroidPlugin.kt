@@ -160,6 +160,19 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         } ?: logNotFound(id, "seekBy")
     }
 
+    @UsedByGodot
+    fun changeVideoUrl(id: Int, videoUri: String){
+        exoPlayers[id]?.let { player ->
+            val dataSourceFactory: DataSource.Factory = buildDataSourceFactory(activity as Context)
+            val uri = Uri.parse(videoUri)
+            val licenseUrl = drmConfigurations[id]?.get("licenseUrl") as? String ?: ""
+            val mediaItems = buildMediaItems(uri, licenseUrl)
+            player.setMediaItems(mediaItems)
+            player.prepare()
+            Log.v(pluginName, "ExoPlayer($id) video URL changed to: $videoUri")
+        } ?: logNotFound(id, "changeVideoUrl")
+    }
+
     // --- Volume ---
 
     @UsedByGodot
