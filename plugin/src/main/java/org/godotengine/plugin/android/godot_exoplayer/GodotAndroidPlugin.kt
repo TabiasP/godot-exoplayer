@@ -14,6 +14,8 @@ import androidx.media3.common.util.Util
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSourceInputStream
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
@@ -21,8 +23,6 @@ import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
-import androidx.media3.exoplayer.DecoderCounters
-import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -84,6 +84,8 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     private var downloadCache: Cache? = null
     private var databaseProvider : DatabaseProvider? = null
 
+    private val programDateTimes = mutableMapOf<Int, String>()
+
 
     // --- ExoPlayer Management ---
 
@@ -123,6 +125,23 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
             player.addAnalyticsListener(EventLogger())
 
+            try {
+                val manifestUrl = videoUri    // your .m3u8 URL
+                val ds = buildDataSourceFactory(activity as Context).createDataSource()
+                val inStream = DataSourceInputStream(ds, DataSpec(Uri.parse(manifestUrl)))
+                val text = inStream.readBytes().toString(Charsets.UTF_8)
+                inStream.close()
+                val dt = Regex("""#EXT-X-PROGRAM-DATE-TIME:(.*)""")
+                    .find(text)
+                    ?.groupValues
+                    ?.get(1)
+                    ?: ""
+                programDateTimes[id] = dt
+            } catch (e: Exception) {
+                Log.w(pluginName, "Could not parse program‑date‑time: ${e.message}")
+                programDateTimes[id] = ""
+            }
+
             player.prepare()
             exoPlayers[id] = player
 
@@ -137,6 +156,11 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         exoPlayers.remove(id)?.release()?.also {
             Log.v(pluginName, "ExoPlayer($id) released and removed.")
         } ?: Log.e(pluginName, "ExoPlayer($id) not found when attempting to release")
+    }
+
+    @UsedByGodot
+    fun getProgramDateTime(id: Int): String {
+        return programDateTimes[id] ?: ""
     }
 
     // --- Playback Controls ---
