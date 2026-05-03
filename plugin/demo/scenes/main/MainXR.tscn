@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3 uid="uid://dbqrwjkpwj1rn"]
+[gd_scene format=3 uid="uid://dbqrwjkpwj1rn"]
 
 [ext_resource type="Script" uid="uid://d3t2svyp1740u" path="res://scenes/main/main_xr.gd" id="1_j6ddo"]
 [ext_resource type="PackedScene" uid="uid://c7t0qooxsi3vb" path="res://scenes/xr_player/xr_player.tscn" id="2_be6s4"]
@@ -28,26 +28,26 @@ albedo_color = Color(0.174985, 0.174985, 0.174985, 1)
 material = SubResource("StandardMaterial3D_l5qah")
 size = Vector3(10, 0.1, 10)
 
-[node name="MainXR" type="Node3D"]
+[node name="MainXR" type="Node3D" unique_id=1445461528]
 script = ExtResource("1_j6ddo")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=658774402]
 environment = SubResource("Environment_lkshg")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=921369820]
 transform = Transform3D(-0.866023, -0.433016, 0.250001, 0, 0.499998, 0.866027, -0.500003, 0.749999, -0.43301, 0, 0, 0)
 shadow_enabled = true
 
-[node name="Floor" type="StaticBody3D" parent="."]
+[node name="Floor" type="StaticBody3D" parent="." unique_id=1838697872]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.0315933, 0)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor" unique_id=1760734497]
 shape = SubResource("BoxShape3D_l5qah")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor" unique_id=1790147802]
 mesh = SubResource("BoxMesh_bdica")
 
-[node name="Viewport2Din3D" parent="." instance=ExtResource("3_cbtg8")]
+[node name="Viewport2Din3D" parent="." unique_id=14656780 instance=ExtResource("3_cbtg8")]
 transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, 1.19652, 1.12225, 0)
 screen_size = Vector2(1.6, 0.9)
 scene = ExtResource("5_0f7ma")
@@ -55,7 +55,7 @@ viewport_size = Vector2(700, 300)
 transparent = 0
 scene_properties_keys = PackedStringArray("test_panel.gd")
 
-[node name="XROrigin3D" parent="." instance=ExtResource("2_be6s4")]
+[node name="XROrigin3D" parent="." unique_id=525431301 instance=ExtResource("2_be6s4")]
 
 [node name="BoneAttachment3D" parent="XROrigin3D/LeftTrackedHand/LeftHandHumanoid2/LeftHandHumanoid/Skeleton3D" index="2"]
 transform = Transform3D(0.01489234, 0.39270008, 0.919546, -0.9930924, 0.11285266, -0.03211129, -0.11638325, -0.91271573, 0.39166808, -0.01110013, 0.04294307, -0.17161417)
@@ -63,7 +63,7 @@ transform = Transform3D(0.01489234, 0.39270008, 0.919546, -0.9930924, 0.11285266
 [node name="BoneAttachment3D" parent="XROrigin3D/RightTrackedHand/RightHandHumanoid2/RightHandHumanoid/Skeleton3D" index="2"]
 transform = Transform3D(0.01903836, -0.39268863, -0.9194744, 0.99322706, 0.11285307, -0.027631793, 0.11461615, -0.91272074, 0.39217746, 0.011100034, 0.04294298, -0.17161338)
 
-[node name="CompLayer" type="OpenXRCompositionLayerQuad" parent="XROrigin3D"]
+[node name="CompLayer" type="OpenXRCompositionLayerQuad" parent="XROrigin3D" unique_id=1653662828]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.04548, -0.922102)
 use_android_surface = true
 android_surface_size = Vector2i(1920, 1080)
@@ -73,7 +73,7 @@ XR_FB_composition_layer_secure_content/external_output = 1
 XR_FB_composition_layer_image_layout/vertical_flip = true
 quad_size = Vector2(1.6, 0.9)
 
-[node name="VideoControls2DIn3D" parent="XROrigin3D/CompLayer" instance=ExtResource("3_cbtg8")]
+[node name="VideoControls2DIn3D" parent="XROrigin3D/CompLayer" unique_id=245527507 instance=ExtResource("3_cbtg8")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.113051, 0.00299996)
 screen_size = Vector2(1.6, 0.9)
 collision_layer = 5242880

@@ -3,6 +3,7 @@ extends Node
 signal player_ready(id: int, duration:float)
 signal player_error(id: int, error_message: String)
 signal video_end(id: int)
+signal player_state_changed(id: int, state: int)
 
 
 var _plugin_name = "godot_exoplayer"
@@ -20,22 +21,12 @@ func _ready() -> void:
 		connect_plugin_signals()
 
 
-## create a exoplayer instance with a provided android surface, a video url and a WIDEVINE DRM LICENSE url
-## license url is optional
-func create_exoplayer_instance(android_surface, video_uri, license_url : String = "") -> int:
+func create_player(android_surface, video_uri: String, options: Dictionary = {}) -> int:
 	if _android_plugin and android_surface:
 		var new_id = current_id
-		##drm init has to be done before creating of the exoplayer
-		if license_url != "":
-			## setup needs a dictionary (hopefully godot dict works :D)
-			## dictionary contains of: userAgent, ascendonToken and entitlementToken and licenseURL
-			var widewine_dict : Dictionary = {
-												 "userAgent" : "Godot Test",
-												 "licenseUrl" : license_url
-											 }
-			_android_plugin.setupWidevine(current_id, widewine_dict)
-
-		_android_plugin.createExoPlayerSurface(current_id,video_uri,android_surface)
+		var config := options.duplicate(true)
+		config["uri"] = video_uri
+		_android_plugin.createExoPlayer(current_id, android_surface, config)
 
 
 
@@ -45,7 +36,7 @@ func create_exoplayer_instance(android_surface, video_uri, license_url : String 
 			"error": null,
 			"surface": android_surface,
 			"uri": video_uri,
-			"license_url": license_url
+			"options": config
 		}
 
 
@@ -53,6 +44,16 @@ func create_exoplayer_instance(android_surface, video_uri, license_url : String 
 		current_id +=1
 		return new_id
 	return -1
+
+## Backwards-compatible helper for the original Widevine-focused API.
+func create_exoplayer_instance(android_surface, video_uri, license_url : String = "") -> int:
+	var options := {}
+	if license_url != "":
+		options["drm"] = {
+			"scheme": "widevine",
+			"licenseUrl": license_url
+		}
+	return create_player(android_surface, video_uri, options)
 
 #region Player Controls
 
@@ -90,6 +91,24 @@ func getPlayerVolume(id:int):
 	if _android_plugin:
 		return _android_plugin.getVolume(id)
 
+func setRepeatMode(id: int, mode: int):
+	if _android_plugin:
+		_android_plugin.setRepeatMode(id, mode)
+
+func setPlaybackSpeed(id: int, speed: float):
+	if _android_plugin:
+		_android_plugin.setPlaybackSpeed(id, speed)
+
+func setMedia(id: int, video_uri: String, options: Dictionary = {}):
+	if _android_plugin and players.has(id):
+		var config := options.duplicate(true)
+		config["uri"] = video_uri
+		_android_plugin.setMedia(id, config)
+		players[id].uri = video_uri
+		players[id].options = config
+		players[id].is_ready = false
+		players[id].duration = -1.0
+
 func getAvailableAudioTracks(id: int):
 	if _android_plugin:
 		return _android_plugin.getAudioTracks(id)
@@ -97,6 +116,19 @@ func getAvailableAudioTracks(id: int):
 func setAudioTrack(player_id: int, audioTrackIndex: int):
 	if _android_plugin:
 		_android_plugin.setAudioTrack(player_id, audioTrackIndex)
+
+func getAvailableTextTracks(id: int):
+	if _android_plugin:
+		return _android_plugin.getTextTracks(id)
+
+func setTextTrack(player_id: int, textTrackIndex: int):
+	if _android_plugin:
+		_android_plugin.setTextTrack(player_id, textTrackIndex)
+
+func getProgramDateTime(id: int) -> String:
+	if _android_plugin:
+		return _android_plugin.getProgramDateTime(id)
+	return ""
 
 #endregion
 
@@ -137,6 +169,7 @@ func connect_plugin_signals() -> void:
 		_android_plugin.connect("on_player_ready",_on_player_ready)
 		_android_plugin.connect("on_player_error", _on_player_error)
 		_android_plugin.connect("on_video_end", _on_video_end)
+		_android_plugin.connect("on_player_state_changed", _on_player_state_changed)
 
 func _on_player_ready(id: int, duration: int) -> void:
 	if players.has(id):
@@ -157,6 +190,9 @@ func _on_player_error(id: int, error_message: String) -> void:
 
 func _on_video_end(id: int) -> void:
 	emit_signal("video_end", id)
+
+func _on_player_state_changed(id: int, state: int) -> void:
+	emit_signal("player_state_changed", id, state)
 
 func _exit_tree() -> void:
 	for id in players.keys():
