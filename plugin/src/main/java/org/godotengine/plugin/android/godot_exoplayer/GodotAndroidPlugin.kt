@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.Log as ExoLogger
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
@@ -25,7 +26,11 @@ import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManagerProvider
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
@@ -39,8 +44,12 @@ import java.io.File
 import java.net.CookieHandler
 import java.net.CookieManager
 import java.net.CookiePolicy
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
+import kotlin.math.min
 
 @UnstableApi
 class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
@@ -60,8 +69,181 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         val useCache: Boolean,
         val parseProgramDateTime: Boolean,
         val debugLogging: Boolean,
+        val routeAudioToGodot: Boolean,
         val drm: DrmConfig?
     )
+
+    private class GodotAudioBuffer {
+        private val chunks = ArrayDeque<FloatArray>()
+        private var headOffsetFrames = 0
+        private var queuedFrames = 0
+        private var sampleRate = 0
+        private var channelCount = 0
+        private var encoding = C.ENCODING_INVALID
+        private val maxQueuedFrames = 96_000
+
+        @Synchronized
+        fun configure(sampleRate: Int, channelCount: Int, encoding: Int) {
+            this.sampleRate = sampleRate
+            this.channelCount = channelCount
+            this.encoding = encoding
+            clear()
+        }
+
+        @Synchronized
+        fun append(buffer: ByteBuffer) {
+            if (sampleRate <= 0 || channelCount <= 0) return
+            val bytesPerSample = bytesPerSample(encoding)
+            if (bytesPerSample <= 0) return
+
+            val source = buffer.slice().order(ByteOrder.LITTLE_ENDIAN)
+            val frameCount = source.remaining() / (bytesPerSample * channelCount)
+            if (frameCount <= 0) return
+
+            val frames = FloatArray(frameCount * OUTPUT_CHANNELS)
+            for (frame in 0 until frameCount) {
+                var left = 0f
+                var right = 0f
+                for (channel in 0 until channelCount) {
+                    val sample = readSample(source, encoding)
+                    if (channel == 0) {
+                        left = sample
+                        right = sample
+                    } else if (channel == 1) {
+                        right = sample
+                    }
+                }
+                val out = frame * OUTPUT_CHANNELS
+                frames[out] = left
+                frames[out + 1] = right
+            }
+
+            chunks.addLast(frames)
+            queuedFrames += frameCount
+            trimToLimit()
+        }
+
+        @Synchronized
+        fun poll(maxFrames: Int): FloatArray {
+            val requestedFrames = maxFrames.coerceAtLeast(0)
+            if (requestedFrames == 0 || queuedFrames == 0) return FloatArray(0)
+
+            val framesToRead = min(requestedFrames, queuedFrames)
+            val output = FloatArray(framesToRead * OUTPUT_CHANNELS)
+            var framesRead = 0
+
+            while (framesRead < framesToRead && chunks.isNotEmpty()) {
+                val chunk = chunks.first()
+                val availableFrames = (chunk.size / OUTPUT_CHANNELS) - headOffsetFrames
+                val copyFrames = min(framesToRead - framesRead, availableFrames)
+                System.arraycopy(
+                    chunk,
+                    headOffsetFrames * OUTPUT_CHANNELS,
+                    output,
+                    framesRead * OUTPUT_CHANNELS,
+                    copyFrames * OUTPUT_CHANNELS
+                )
+                framesRead += copyFrames
+                queuedFrames -= copyFrames
+                headOffsetFrames += copyFrames
+
+                if (headOffsetFrames >= chunk.size / OUTPUT_CHANNELS) {
+                    chunks.removeFirst()
+                    headOffsetFrames = 0
+                }
+            }
+
+            return output
+        }
+
+        @Synchronized
+        fun clear() {
+            chunks.clear()
+            headOffsetFrames = 0
+            queuedFrames = 0
+        }
+
+        @Synchronized
+        fun formatDictionary() = Dictionary().apply {
+            put("sampleRate", sampleRate)
+            put("channelCount", channelCount)
+            put("encoding", encoding)
+            put("queuedFrames", queuedFrames)
+        }
+
+        private fun trimToLimit() {
+            while (queuedFrames > maxQueuedFrames && chunks.isNotEmpty()) {
+                val chunk = chunks.first()
+                val availableFrames = (chunk.size / OUTPUT_CHANNELS) - headOffsetFrames
+                val framesToDrop = min(queuedFrames - maxQueuedFrames, availableFrames)
+                queuedFrames -= framesToDrop
+                headOffsetFrames += framesToDrop
+                if (headOffsetFrames >= chunk.size / OUTPUT_CHANNELS) {
+                    chunks.removeFirst()
+                    headOffsetFrames = 0
+                }
+            }
+        }
+
+        private fun bytesPerSample(encoding: Int): Int {
+            return when (encoding) {
+                C.ENCODING_PCM_8BIT -> 1
+                C.ENCODING_PCM_16BIT -> 2
+                C.ENCODING_PCM_24BIT -> 3
+                C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> 4
+                else -> 0
+            }
+        }
+
+        private fun readSample(buffer: ByteBuffer, encoding: Int): Float {
+            return when (encoding) {
+                C.ENCODING_PCM_8BIT -> ((buffer.get().toInt() and 0xFF) - 128) / 128f
+                C.ENCODING_PCM_16BIT -> (buffer.short / 32768f).coerceIn(-1f, 1f)
+                C.ENCODING_PCM_24BIT -> {
+                    val value = (buffer.get().toInt() and 0xFF) or
+                        ((buffer.get().toInt() and 0xFF) shl 8) or
+                        (buffer.get().toInt() shl 16)
+                    (value / 8388608f).coerceIn(-1f, 1f)
+                }
+                C.ENCODING_PCM_32BIT -> {
+                    (buffer.int / 2147483648f).coerceIn(-1f, 1f)
+                }
+                C.ENCODING_PCM_FLOAT -> buffer.float.coerceIn(-1f, 1f)
+                else -> 0f
+            }
+        }
+
+        companion object {
+            private const val OUTPUT_CHANNELS = 2
+        }
+    }
+
+    private class GodotAudioSink(private val audioBuffer: GodotAudioBuffer) : TeeAudioProcessor.AudioBufferSink {
+        override fun flush(sampleRateHz: Int, channelCount: Int, encoding: Int) {
+            audioBuffer.configure(sampleRateHz, channelCount, encoding)
+        }
+
+        override fun handleBuffer(buffer: ByteBuffer) {
+            audioBuffer.append(buffer)
+        }
+    }
+
+    private class GodotAudioRenderersFactory(
+        context: Context,
+        private val audioBuffer: GodotAudioBuffer
+    ) : DefaultRenderersFactory(context) {
+        override fun buildAudioSink(
+            context: Context,
+            enableFloatOutput: Boolean,
+            enableAudioTrackPlaybackParams: Boolean
+        ): AudioSink {
+            return DefaultAudioSink.Builder(context)
+                .setAudioProcessors(arrayOf<AudioProcessor>(TeeAudioProcessor(GodotAudioSink(audioBuffer))))
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .build()
+        }
+    }
 
     override fun getPluginName() = BuildConfig.GODOT_PLUGIN_NAME
 
@@ -76,6 +258,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     private val drmConfigurations = mutableMapOf<Int, Dictionary>()
     private val playerConfigurations = mutableMapOf<Int, PlayerConfig>()
     private val programDateTimes = mutableMapOf<Int, String>()
+    private val audioBuffers = mutableMapOf<Int, GodotAudioBuffer>()
 
     private var downloadDirectory: File? = null
     private var downloadCache: Cache? = null
@@ -94,9 +277,16 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             exoPlayers.remove(id)?.release()
             programDateTimes[id] = ""
 
-            val player = ExoPlayer.Builder(context)
+            val playerBuilder = ExoPlayer.Builder(context)
                 .setMediaSourceFactory(buildMediaSourceFactory(context, dataSourceFactory))
-                .build()
+            if (playerConfig.routeAudioToGodot) {
+                playerBuilder.setRenderersFactory(
+                    GodotAudioRenderersFactory(context, audioBuffers.getOrPut(id) { GodotAudioBuffer() })
+                )
+            } else {
+                audioBuffers.remove(id)
+            }
+            val player = playerBuilder.build()
 
             configurePlayer(id, player, playerConfig, surface)
             player.prepare()
@@ -129,6 +319,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         exoPlayers.remove(id)?.release()?.also {
             playerConfigurations.remove(id)
             programDateTimes.remove(id)
+            audioBuffers.remove(id)
             Log.v(pluginName, "ExoPlayer($id) released and removed.")
         } ?: Log.e(pluginName, "ExoPlayer($id) not found when attempting to release")
     }
@@ -148,6 +339,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
     @UsedByGodot
     fun seekTo(id: Int, positionMs: Long) = runOnUiThread {
+        audioBuffers[id]?.clear()
         exoPlayers[id]?.seekTo(positionMs) ?: logNotFound(id, "seek")
     }
 
@@ -159,6 +351,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             } else {
                 (player.currentPosition + deltaMs).coerceAtLeast(0)
             }
+            audioBuffers[id]?.clear()
             player.seekTo(newPos)
         } ?: logNotFound(id, "seekBy")
     }
@@ -187,8 +380,12 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         val player = exoPlayers[id] ?: return@runOnUiThread logNotFound(id, "setMedia")
         try {
             val playerConfig = buildPlayerConfig(id, config, playerConfigurations[id])
+            if (playerConfig.routeAudioToGodot != playerConfigurations[id]?.routeAudioToGodot) {
+                throw IllegalArgumentException("routeAudioToGodot cannot be changed with setMedia; recreate the player")
+            }
             val dataSourceFactory = buildDataSourceFactory(activity as Context, playerConfig.useCache)
 
+            audioBuffers[id]?.clear()
             player.setMediaItem(buildMediaItem(playerConfig))
             player.prepare()
             playerConfigurations[id] = playerConfig
@@ -220,13 +417,33 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     fun setVolume(id: Int, volume: Float) = runOnUiThread {
         exoPlayers[id]?.let { player ->
             val safeVolume = volume.coerceIn(0f, 1f)
-            player.volume = safeVolume
+            player.volume = if (playerConfigurations[id]?.routeAudioToGodot == true) 0f else safeVolume
             playerConfigurations[id]?.let { playerConfigurations[id] = it.copy(volume = safeVolume) }
         } ?: logNotFound(id, "setVolume")
     }
 
     @UsedByGodot
-    fun getVolume(id: Int): Float = runAndWaitUI { exoPlayers[id]?.volume ?: -1f }
+    fun getVolume(id: Int): Float = runAndWaitUI { playerConfigurations[id]?.volume ?: exoPlayers[id]?.volume ?: -1f }
+
+    @UsedByGodot
+    fun pollAudioFrames(id: Int, maxFrames: Int): FloatArray {
+        return audioBuffers[id]?.poll(maxFrames) ?: FloatArray(0)
+    }
+
+    @UsedByGodot
+    fun getAudioFormat(id: Int): Dictionary {
+        return audioBuffers[id]?.formatDictionary() ?: Dictionary().apply {
+            put("sampleRate", 0)
+            put("channelCount", 0)
+            put("encoding", C.ENCODING_INVALID)
+            put("queuedFrames", 0)
+        }
+    }
+
+    @UsedByGodot
+    fun clearAudioBuffer(id: Int) {
+        audioBuffers[id]?.clear()
+    }
 
     // --- Tracks & Resolutions ---
 
@@ -271,6 +488,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         val player = exoPlayers[id] ?: return@runOnUiThread logNotFound(id, "setAudioTrack")
         val selection = findTrackSelection(player, C.TRACK_TYPE_AUDIO, audioTrackIndex) ?: return@runOnUiThread
         val language = player.currentTracks.groups[selection.first].getTrackFormat(selection.second).language ?: "und"
+        audioBuffers[id]?.clear()
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setPreferredAudioLanguages(language).build()
         Log.v(pluginName, "ExoPlayer($id) set audio track $audioTrackIndex")
@@ -339,6 +557,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             exoPlayers.clear()
             playerConfigurations.clear()
             programDateTimes.clear()
+            audioBuffers.clear()
         }
         super.onMainDestroy()
     }
@@ -348,7 +567,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     private fun configurePlayer(id: Int, player: ExoPlayer, config: PlayerConfig, surface: Surface) {
         player.setMediaItem(buildMediaItem(config))
         player.setVideoSurface(surface)
-        player.volume = config.volume
+        player.volume = if (config.routeAudioToGodot) 0f else config.volume
         player.repeatMode = config.repeatMode
         player.playbackParameters = PlaybackParameters(config.playbackSpeed)
         player.addListener(createPlayerListener(id))
@@ -370,6 +589,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             useCache = getBoolean(data, "useCache", defaults?.useCache ?: false),
             parseProgramDateTime = getBoolean(data, "parseProgramDateTime", defaults?.parseProgramDateTime ?: false),
             debugLogging = getBoolean(data, "debugLogging", defaults?.debugLogging ?: false),
+            routeAudioToGodot = getBoolean(data, "routeAudioToGodot", defaults?.routeAudioToGodot ?: false),
             drm = getDictionary(data, "drm")?.let { buildDrmConfig(it) } ?: legacyDrmConfig(id) ?: defaults?.drm
         )
     }

@@ -6,15 +6,19 @@ var export_plugin : AndroidExportPlugin
 
 ## adds the ExoPlayer.gd as a Singleton autoload
 const AUTOLOAD_NAME = "ExoPlayer"
+const COMPOSITION_LAYER_NAME = "ExoPlayerCompositionLayer"
+const COMPOSITION_LAYER_SCRIPT = preload("res://addons/godot_exoplayer/ExoPlayerCompositionLayer.gd")
 
 func _enter_tree():
 	# Initialization of the plugin goes here.
 	export_plugin = AndroidExportPlugin.new()
 	add_export_plugin(export_plugin)
+	add_custom_type(COMPOSITION_LAYER_NAME, "OpenXRCompositionLayerQuad", COMPOSITION_LAYER_SCRIPT, null)
 
 
 func _exit_tree():
 	# Clean-up of the plugin goes here.
+	remove_custom_type(COMPOSITION_LAYER_NAME)
 	remove_export_plugin(export_plugin)
 	export_plugin = null
 
