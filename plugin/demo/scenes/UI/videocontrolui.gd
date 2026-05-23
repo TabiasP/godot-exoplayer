@@ -21,6 +21,7 @@ func setup_video_controls(exoplayer_id: int, duration) -> void:
 	ExoPlayer.player_error.connect(_on_player_error)
 	_on_player_ready(exoplayer_id, duration)
 	error_label.hide()
+	print("WE GOT HERE AND ARE READy")
 	pass
 	
 #region ExoPlayer Signals and Functions

@@ -1,10 +1,10 @@
-[gd_scene load_steps=13 format=3 uid="uid://c7t0qooxsi3vb"]
+[gd_scene format=3 uid="uid://c7t0qooxsi3vb"]
 
 [ext_resource type="PackedScene" uid="uid://bjcxf427un2wp" path="res://addons/godot-xr-tools/player/poke/poke.tscn" id="2_1tten"]
-[ext_resource type="PackedScene" uid="uid://cjcehqrfoxav3" path="res://addons/hand_pose_detector/hands/LeftHandHumanoid.gltf" id="2_77brf"]
+[ext_resource type="PackedScene" uid="uid://ig4o7xa3lnqd" path="res://addons/hand_pose_detector/hands/LeftHandHumanoid.gltf" id="2_77brf"]
 [ext_resource type="PackedScene" uid="uid://bh8isvqs258cp" path="res://addons/hand_pose_detector/hand_pose_controller.tscn" id="2_fmxf1"]
 [ext_resource type="Script" uid="uid://dh3g2wbyf52sy" path="res://addons/hand_pose_detector/hand_pose_action.gd" id="3_1tten"]
-[ext_resource type="PackedScene" uid="uid://dabmoo0spa6vg" path="res://addons/hand_pose_detector/hands/RightHandHumanoid.gltf" id="3_57bwe"]
+[ext_resource type="PackedScene" uid="uid://b6o8tkudm8k2x" path="res://addons/hand_pose_detector/hands/RightHandHumanoid.gltf" id="3_57bwe"]
 [ext_resource type="Resource" uid="uid://dhbqusuodrl3r" path="res://addons/hand_pose_detector/poses/fist.tres" id="4_hny5n"]
 [ext_resource type="Resource" uid="uid://n6qmsq57l1g4" path="res://addons/hand_pose_detector/poses/index_pinch.tres" id="5_6hqaa"]
 [ext_resource type="Script" uid="uid://qom1dyuk2jd8" path="res://addons/hand_pose_detector/hand_pose_action_map.gd" id="6_tmy1q"]
@@ -20,7 +20,6 @@ metadata/_custom_type_script = ExtResource("3_1tten")
 [sub_resource type="Resource" id="Resource_3g5ex"]
 script = ExtResource("3_1tten")
 pose = ExtResource("5_6hqaa")
-action_type = 0
 action_name = "trigger_click"
 metadata/_custom_type_script = ExtResource("3_1tten")
 
@@ -29,62 +28,62 @@ script = ExtResource("6_tmy1q")
 actions = Array[ExtResource("3_1tten")]([SubResource("Resource_qft0j"), SubResource("Resource_3g5ex")])
 metadata/_custom_type_script = ExtResource("6_tmy1q")
 
-[node name="XROrigin3D" type="XROrigin3D"]
+[node name="XROrigin3D" type="XROrigin3D" unique_id=887804601]
 
-[node name="XRCamera3D" type="XRCamera3D" parent="."]
+[node name="XRCamera3D" type="XRCamera3D" parent="." unique_id=1917883381]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
 
-[node name="LeftTrackedHand" type="XRController3D" parent="."]
+[node name="LeftTrackedHand" type="XRController3D" parent="." unique_id=738446679]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.139708, 0, 0)
 tracker = &"/user/hand_tracker/left"
 show_when_tracked = true
 
-[node name="LeftHandHumanoid2" parent="LeftTrackedHand" instance=ExtResource("2_77brf")]
+[node name="LeftHandHumanoid2" parent="LeftTrackedHand" unique_id=820717442 instance=ExtResource("2_77brf")]
 
-[node name="XRHandModifier3D" type="XRHandModifier3D" parent="LeftTrackedHand/LeftHandHumanoid2/LeftHandHumanoid/Skeleton3D" index="1"]
+[node name="XRHandModifier3D" type="XRHandModifier3D" parent="LeftTrackedHand/LeftHandHumanoid2/LeftHandHumanoid/Skeleton3D" index="1" unique_id=533298753]
 
-[node name="BoneAttachment3D" type="BoneAttachment3D" parent="LeftTrackedHand/LeftHandHumanoid2/LeftHandHumanoid/Skeleton3D" index="2"]
-transform = Transform3D(0.0148923, 0.3927, 0.919546, -0.993092, 0.112853, -0.0321113, -0.116383, -0.912716, 0.391668, -0.0111001, 0.0429431, -0.171614)
+[node name="BoneAttachment3D" type="BoneAttachment3D" parent="LeftTrackedHand/LeftHandHumanoid2/LeftHandHumanoid/Skeleton3D" index="2" unique_id=482476031]
+transform = Transform3D(0.01489234, 0.39270008, 0.919546, -0.9930924, 0.11285266, -0.03211129, -0.11638325, -0.91271573, 0.39166808, -0.01110013, 0.04294307, -0.17161417)
 bone_name = "LeftIndexTip"
 bone_idx = 9
 
-[node name="Poke" parent="LeftTrackedHand/LeftHandHumanoid2/LeftHandHumanoid/Skeleton3D/BoneAttachment3D" instance=ExtResource("2_1tten")]
+[node name="Poke" parent="LeftTrackedHand/LeftHandHumanoid2/LeftHandHumanoid/Skeleton3D/BoneAttachment3D" unique_id=1462819175 instance=ExtResource("2_1tten")]
 
-[node name="HandPoseController" parent="LeftTrackedHand" instance=ExtResource("2_fmxf1")]
+[node name="HandPoseController" parent="LeftTrackedHand" unique_id=130213512 instance=ExtResource("2_fmxf1")]
 controller_action_map = SubResource("Resource_acno1")
 
-[node name="RightTrackedHand" type="XRController3D" parent="."]
+[node name="RightTrackedHand" type="XRController3D" parent="." unique_id=966555587]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.181342, 0, 0)
 tracker = &"/user/hand_tracker/right"
 show_when_tracked = true
 
-[node name="RightHandHumanoid2" parent="RightTrackedHand" instance=ExtResource("3_57bwe")]
+[node name="RightHandHumanoid2" parent="RightTrackedHand" unique_id=1405745882 instance=ExtResource("3_57bwe")]
 
-[node name="XRHandModifier3D" type="XRHandModifier3D" parent="RightTrackedHand/RightHandHumanoid2/RightHandHumanoid/Skeleton3D" index="1"]
+[node name="XRHandModifier3D" type="XRHandModifier3D" parent="RightTrackedHand/RightHandHumanoid2/RightHandHumanoid/Skeleton3D" index="1" unique_id=1562330647]
 hand_tracker = &"/user/hand_tracker/right"
 
-[node name="BoneAttachment3D" type="BoneAttachment3D" parent="RightTrackedHand/RightHandHumanoid2/RightHandHumanoid/Skeleton3D" index="2"]
-transform = Transform3D(0.0190384, -0.392689, -0.919474, 0.993227, 0.112853, -0.0276318, 0.114616, -0.912721, 0.392177, 0.0111, 0.042943, -0.171613)
+[node name="BoneAttachment3D" type="BoneAttachment3D" parent="RightTrackedHand/RightHandHumanoid2/RightHandHumanoid/Skeleton3D" index="2" unique_id=52630044]
+transform = Transform3D(0.01903836, -0.39268863, -0.9194744, 0.99322706, 0.11285307, -0.027631793, 0.11461615, -0.91272074, 0.39217746, 0.011100034, 0.04294298, -0.17161338)
 bone_name = "RightIndexTip"
 bone_idx = 9
 
-[node name="Poke" parent="RightTrackedHand/RightHandHumanoid2/RightHandHumanoid/Skeleton3D/BoneAttachment3D" instance=ExtResource("2_1tten")]
+[node name="Poke" parent="RightTrackedHand/RightHandHumanoid2/RightHandHumanoid/Skeleton3D/BoneAttachment3D" unique_id=1721550899 instance=ExtResource("2_1tten")]
 
-[node name="HandPoseController" parent="RightTrackedHand" instance=ExtResource("2_fmxf1")]
+[node name="HandPoseController" parent="RightTrackedHand" unique_id=619698092 instance=ExtResource("2_fmxf1")]
 controller_tracker_name = "/user/hand_pose_controller/right"
 controller_action_map = SubResource("Resource_acno1")
 hand_tracker_name = "/user/hand_tracker/right"
 
-[node name="LeftVirtualController" type="XRController3D" parent="."]
+[node name="LeftVirtualController" type="XRController3D" parent="." unique_id=781418735]
 tracker = &"/user/hand_pose_controller/left"
 
-[node name="FunctionPointer" parent="LeftVirtualController" instance=ExtResource("9_hny5n")]
+[node name="FunctionPointer" parent="LeftVirtualController" unique_id=547123667 instance=ExtResource("9_hny5n")]
 transform = Transform3D(0.777146, 0, -0.62932, 0, 1, 0, 0.62932, 0, 0.777146, 0.065, -0.005, 0)
 
-[node name="RightVirtualController" type="XRController3D" parent="."]
+[node name="RightVirtualController" type="XRController3D" parent="." unique_id=607104288]
 tracker = &"/user/hand_pose_controller/right"
 
-[node name="FunctionPointer" parent="RightVirtualController" instance=ExtResource("9_hny5n")]
+[node name="FunctionPointer" parent="RightVirtualController" unique_id=444245867 instance=ExtResource("9_hny5n")]
 transform = Transform3D(0.777146, 0, 0.62932, 0, 1, 0, -0.62932, 0, 0.777146, -0.065, 0.005, 0)
 
 [editable path="LeftTrackedHand/LeftHandHumanoid2"]

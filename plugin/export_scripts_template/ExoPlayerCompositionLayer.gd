@@ -27,6 +27,8 @@ signal player_state_changed(id: int, state: int)
 @export_group("Godot Audio")
 @export var route_audio_to_godot: bool = false
 @export var godot_audio_player_path: NodePath
+@export var godot_audio_players: Array[NodePath] = []
+@export_enum("Duplicated Stereo", "Split Stereo") var spatial_audio_mode: int = 0
 @export_range(0.05, 2.0, 0.01) var godot_audio_buffer_length: float = 0.5
 
 var player_id: int = -1
@@ -132,7 +134,8 @@ func _build_options() -> Dictionary:
 		"parseProgramDateTime": parse_program_date_time,
 		"debugLogging": debug_logging,
 		"routeAudioToGodot": route_audio_to_godot,
-		"godotAudioBufferLength": godot_audio_buffer_length
+		"godotAudioBufferLength": godot_audio_buffer_length,
+		"spatialAudioMode": spatial_audio_mode
 	}
 
 	if widevine_license_url != "":
@@ -142,9 +145,17 @@ func _build_options() -> Dictionary:
 			"requestHeaders": widevine_request_headers
 		}
 
-	var godot_audio_player = get_node_or_null(godot_audio_player_path)
-	if godot_audio_player is AudioStreamPlayer or godot_audio_player is AudioStreamPlayer3D:
-		options["godotAudioPlayer"] = godot_audio_player
+	var resolved_players := []
+	for path in godot_audio_players:
+		var p = get_node_or_null(path)
+		if p is AudioStreamPlayer or p is AudioStreamPlayer3D:
+			resolved_players.append(p)
+	if resolved_players.size() > 0:
+		options["godotAudioPlayers"] = resolved_players
+	else:
+		var godot_audio_player = get_node_or_null(godot_audio_player_path)
+		if godot_audio_player is AudioStreamPlayer or godot_audio_player is AudioStreamPlayer3D:
+			options["godotAudioPlayer"] = godot_audio_player
 
 	return options
 

@@ -220,11 +220,69 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
     private class GodotAudioSink(private val audioBuffer: GodotAudioBuffer) : TeeAudioProcessor.AudioBufferSink {
         override fun flush(sampleRateHz: Int, channelCount: Int, encoding: Int) {
+            Log.d("GodotAudioSink", "flush: sampleRateHz=$sampleRateHz, channelCount=$channelCount, encoding=$encoding")
             audioBuffer.configure(sampleRateHz, channelCount, encoding)
         }
 
         override fun handleBuffer(buffer: ByteBuffer) {
             audioBuffer.append(buffer)
+        }
+    }
+
+    private class SilenceAudioProcessor : AudioProcessor {
+        private var inputFormat = AudioProcessor.AudioFormat.NOT_SET
+        private var outputBuffer = AudioProcessor.EMPTY_BUFFER
+        private var active = false
+        private var inputEnded = false
+
+        override fun configure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+            inputFormat = inputAudioFormat
+            active = true
+            return inputAudioFormat
+        }
+
+        override fun isActive(): Boolean = active
+
+        override fun queueInput(inputBuffer: ByteBuffer) {
+            val remaining = inputBuffer.remaining()
+            if (remaining == 0) return
+
+            if (outputBuffer.capacity() < remaining) {
+                outputBuffer = ByteBuffer.allocateDirect(remaining).order(ByteOrder.nativeOrder())
+            } else {
+                outputBuffer.clear()
+            }
+
+            val zeroArray = ByteArray(remaining)
+            outputBuffer.put(zeroArray)
+            outputBuffer.flip()
+
+            inputBuffer.position(inputBuffer.limit())
+        }
+
+        override fun queueEndOfStream() {
+            inputEnded = true
+        }
+
+        override fun getOutput(): ByteBuffer {
+            val output = outputBuffer
+            outputBuffer = AudioProcessor.EMPTY_BUFFER
+            return output
+        }
+
+        override fun isEnded(): Boolean {
+            return inputEnded && outputBuffer == AudioProcessor.EMPTY_BUFFER
+        }
+
+        override fun flush() {
+            outputBuffer = AudioProcessor.EMPTY_BUFFER
+            inputEnded = false
+        }
+
+        override fun reset() {
+            flush()
+            inputFormat = AudioProcessor.AudioFormat.NOT_SET
+            active = false
         }
     }
 
@@ -238,7 +296,10 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             enableAudioTrackPlaybackParams: Boolean
         ): AudioSink {
             return DefaultAudioSink.Builder(context)
-                .setAudioProcessors(arrayOf<AudioProcessor>(TeeAudioProcessor(GodotAudioSink(audioBuffer))))
+                .setAudioProcessors(arrayOf<AudioProcessor>(
+                    TeeAudioProcessor(GodotAudioSink(audioBuffer)),
+                    SilenceAudioProcessor()
+                ))
                 .setEnableFloatOutput(enableFloatOutput)
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .build()
@@ -417,7 +478,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     fun setVolume(id: Int, volume: Float) = runOnUiThread {
         exoPlayers[id]?.let { player ->
             val safeVolume = volume.coerceIn(0f, 1f)
-            player.volume = if (playerConfigurations[id]?.routeAudioToGodot == true) 0f else safeVolume
+            player.volume = if (playerConfigurations[id]?.routeAudioToGodot == true) 1.0f else safeVolume
             playerConfigurations[id]?.let { playerConfigurations[id] = it.copy(volume = safeVolume) }
         } ?: logNotFound(id, "setVolume")
     }
@@ -567,7 +628,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     private fun configurePlayer(id: Int, player: ExoPlayer, config: PlayerConfig, surface: Surface) {
         player.setMediaItem(buildMediaItem(config))
         player.setVideoSurface(surface)
-        player.volume = if (config.routeAudioToGodot) 0f else config.volume
+        player.volume = if (config.routeAudioToGodot) 1.0f else config.volume
         player.repeatMode = config.repeatMode
         player.playbackParameters = PlaybackParameters(config.playbackSpeed)
         player.addListener(createPlayerListener(id))

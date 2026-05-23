@@ -30,7 +30,6 @@ func _ready() -> void:
 	else:
 		print("OpenXR not initialized!")
 	
-	exo_player_composition_layer.player_ready.connect(_on_player_ready)
 	exo_player_composition_layer.video_end.connect(_on_video_end)
 	
 	await get_tree().create_timer(5).timeout

@@ -33,6 +33,8 @@ func create_player(android_surface, video_uri: String, options: Dictionary = {})
 		config["uri"] = video_uri
 		var android_config := config.duplicate(true)
 		android_config.erase("godotAudioPlayer")
+		android_config.erase("godotAudioPlayers")
+		android_config.erase("spatialAudioMode")
 		android_config.erase("godotAudioBufferLength")
 
 		players[new_id] = {
@@ -43,12 +45,16 @@ func create_player(android_surface, video_uri: String, options: Dictionary = {})
 			"uri": video_uri,
 			"options": config,
 			"route_audio_to_godot": bool(config.get("routeAudioToGodot", false)),
-			"godot_audio_player": null,
-			"godot_audio_stream": null,
-			"godot_audio_playback": null,
+			"godot_audio_players": [],
+			"godot_audio_streams": [],
+			"godot_audio_playbacks": [],
+			"godot_audio_player": null, # Backwards compatibility
+			"godot_audio_stream": null,  # Backwards compatibility
+			"godot_audio_playback": null, # Backwards compatibility
 			"godot_audio_sample_rate": 0,
 			"godot_audio_buffer_length": float(config.get("godotAudioBufferLength", DEFAULT_GODOT_AUDIO_BUFFER_LENGTH)),
-			"logical_volume": float(config.get("volume", 1.0))
+			"logical_volume": float(config.get("volume", 1.0)),
+			"spatial_audio_mode": int(config.get("spatialAudioMode", 0))
 		}
 
 		if players[new_id].route_audio_to_godot:
@@ -207,52 +213,123 @@ func _process(_delta: float) -> void:
 			_pump_godot_audio(id)
 
 func _setup_godot_audio(id: int, config: Dictionary) -> void:
-	var audio_player = config.get("godotAudioPlayer", null)
-	var owns_player := false
-	if audio_player == null:
-		audio_player = AudioStreamPlayer.new()
-		add_child(audio_player)
-		owns_player = true
+	var players_list = []
+	var managed_list = []
+	var owns_players := false
 
-	var stream := AudioStreamGenerator.new()
-	stream.mix_rate = DEFAULT_GODOT_AUDIO_MIX_RATE
-	stream.buffer_length = float(config.get("godotAudioBufferLength", DEFAULT_GODOT_AUDIO_BUFFER_LENGTH))
-	audio_player.stream = stream
-	audio_player.volume_linear = players[id].logical_volume
-	audio_player.play()
+	var config_players = config.get("godotAudioPlayers", [])
+	if config_players.size() > 0:
+		for cp in config_players:
+			if cp != null:
+				players_list.append(cp)
+	else:
+		var single_player = config.get("godotAudioPlayer", null)
+		if single_player != null:
+			players_list.append(single_player)
+		else:
+			var default_player = AudioStreamPlayer.new()
+			add_child(default_player)
+			players_list.append(default_player)
+			managed_list.append(default_player)
+			owns_players = true
 
-	players[id].godot_audio_player = audio_player
-	players[id].godot_audio_stream = stream
-	players[id].godot_audio_playback = audio_player.get_stream_playback()
-	players[id].godot_audio_sample_rate = DEFAULT_GODOT_AUDIO_MIX_RATE
-	players[id].godot_audio_buffer_length = stream.buffer_length
-	if owns_player:
-		_managed_audio_players[id] = audio_player
+	var streams_list = []
+	var playbacks_list = []
+	var sample_rate_val = DEFAULT_GODOT_AUDIO_MIX_RATE
+	var buffer_length_val = float(config.get("godotAudioBufferLength", DEFAULT_GODOT_AUDIO_BUFFER_LENGTH))
+
+	for p in players_list:
+		if p != null:
+			var stream := AudioStreamGenerator.new()
+			stream.mix_rate = sample_rate_val
+			stream.buffer_length = buffer_length_val
+			p.stream = stream
+			p.volume_linear = players[id].logical_volume
+			p.play()
+			streams_list.append(stream)
+			playbacks_list.append(p.get_stream_playback())
+		else:
+			streams_list.append(null)
+			playbacks_list.append(null)
+
+	players[id].godot_audio_players = players_list
+	players[id].godot_audio_streams = streams_list
+	players[id].godot_audio_playbacks = playbacks_list
+	players[id].godot_audio_sample_rate = sample_rate_val
+	players[id].godot_audio_buffer_length = buffer_length_val
+
+	# Backward compatibility properties
+	if players_list.size() > 0:
+		players[id].godot_audio_player = players_list[0]
+		players[id].godot_audio_stream = streams_list[0]
+		players[id].godot_audio_playback = playbacks_list[0]
+
+	if owns_players:
+		_managed_audio_players[id] = managed_list
 
 func _pump_godot_audio(id: int) -> void:
-	var audio_player = players[id].godot_audio_player
-	if audio_player == null:
+	var players_list = players[id].godot_audio_players
+	if players_list.size() == 0:
 		return
 
 	_update_godot_audio_format(id)
-	var playback = players[id].godot_audio_playback
-	if playback == null:
-		if not audio_player.playing:
-			audio_player.play()
-		players[id].godot_audio_playback = audio_player.get_stream_playback()
-		playback = players[id].godot_audio_playback
-	if playback == null:
+
+	var playbacks_list = players[id].godot_audio_playbacks
+	for i in range(players_list.size()):
+		var p = players_list[i]
+		if p != null:
+			var playback = playbacks_list[i]
+			if playback == null:
+				if not p.playing:
+					p.play()
+				playbacks_list[i] = p.get_stream_playback()
+
+	if playbacks_list.size() > 0:
+		players[id].godot_audio_playback = playbacks_list[0]
+
+	# Determine minimum frames available across all playbacks
+	var min_frames_available := 999999
+	for i in range(playbacks_list.size()):
+		var playback = playbacks_list[i]
+		if playback != null:
+			min_frames_available = mini(min_frames_available, playback.get_frames_available())
+		else:
+			min_frames_available = 0
+			break
+
+	if min_frames_available <= 0:
 		return
 
-	var frames_available: int = playback.get_frames_available()
-	if frames_available <= 0:
-		return
-
-	var frames_to_poll: int = mini(frames_available, GODOT_AUDIO_POLL_FRAMES)
+	var frames_to_poll: int = mini(min_frames_available, GODOT_AUDIO_POLL_FRAMES)
 	var samples = _android_plugin.pollAudioFrames(id, frames_to_poll)
+	if samples.size() > 0:
+		players[id]["last_samples"] = samples
 	var frame_count: int = samples.size() / 2
-	for frame in range(frame_count):
-		playback.push_frame(Vector2(samples[frame * 2], samples[frame * 2 + 1]))
+	if frame_count <= 0:
+		return
+
+	var spatial_mode = players[id].get("spatial_audio_mode", 0)
+
+	# Split Stereo (1) with exactly 2 speakers
+	if spatial_mode == 1 and players_list.size() == 2:
+		var p0_playback = playbacks_list[0]
+		var p1_playback = playbacks_list[1]
+		if p0_playback != null and p1_playback != null:
+			for frame in range(frame_count):
+				var left = samples[frame * 2]
+				var right = samples[frame * 2 + 1]
+				p0_playback.push_frame(Vector2(left, left))
+				p1_playback.push_frame(Vector2(right, right))
+	else:
+		# Duplicated Stereo
+		for frame in range(frame_count):
+			var left = samples[frame * 2]
+			var right = samples[frame * 2 + 1]
+			var frame_vec = Vector2(left, right)
+			for i in range(playbacks_list.size()):
+				var playback = playbacks_list[i]
+				if playback != null:
+					playback.push_frame(frame_vec)
 
 func _update_godot_audio_format(id: int) -> void:
 	var format: Dictionary = _android_plugin.getAudioFormat(id)
@@ -260,59 +337,103 @@ func _update_godot_audio_format(id: int) -> void:
 	if sample_rate <= 0 or sample_rate == int(players[id].godot_audio_sample_rate):
 		return
 
-	var audio_player = players[id].godot_audio_player
-	var stream := AudioStreamGenerator.new()
-	stream.mix_rate = sample_rate
-	stream.buffer_length = float(players[id].godot_audio_buffer_length)
-	audio_player.stream = stream
-	audio_player.play()
-	players[id].godot_audio_stream = stream
-	players[id].godot_audio_playback = audio_player.get_stream_playback()
-	players[id].godot_audio_sample_rate = sample_rate
+	var sample_rate_val = sample_rate
+	var buffer_length_val = float(players[id].godot_audio_buffer_length)
+	var players_list = players[id].godot_audio_players
+	var streams_list = []
+	var playbacks_list = []
+
+	for i in range(players_list.size()):
+		var p = players_list[i]
+		if p != null:
+			var stream := AudioStreamGenerator.new()
+			stream.mix_rate = sample_rate_val
+			stream.buffer_length = buffer_length_val
+			p.stream = stream
+			p.play()
+			streams_list.append(stream)
+			playbacks_list.append(p.get_stream_playback())
+		else:
+			streams_list.append(null)
+			playbacks_list.append(null)
+
+	players[id].godot_audio_streams = streams_list
+	players[id].godot_audio_playbacks = playbacks_list
+	players[id].godot_audio_sample_rate = sample_rate_val
+
+	# Backward compatibility properties
+	if players_list.size() > 0:
+		players[id].godot_audio_player = players_list[0]
+		players[id].godot_audio_stream = streams_list[0]
+		players[id].godot_audio_playback = playbacks_list[0]
+
 	_android_plugin.clearAudioBuffer(id)
 
 func _play_godot_audio(id: int) -> void:
 	if not players.has(id) or not players[id].route_audio_to_godot:
 		return
-	var audio_player = players[id].godot_audio_player
-	if audio_player != null and not audio_player.playing:
-		audio_player.play()
-		players[id].godot_audio_playback = audio_player.get_stream_playback()
+	var players_list = players[id].godot_audio_players
+	var playbacks_list = players[id].godot_audio_playbacks
+	for i in range(players_list.size()):
+		var p = players_list[i]
+		if p != null and not p.playing:
+			p.play()
+			playbacks_list[i] = p.get_stream_playback()
+	if playbacks_list.size() > 0:
+		players[id].godot_audio_playback = playbacks_list[0]
 
 func _pause_godot_audio(id: int) -> void:
 	if not players.has(id) or not players[id].route_audio_to_godot:
 		return
-	var audio_player = players[id].godot_audio_player
-	if audio_player != null:
-		audio_player.stop()
+	var players_list = players[id].godot_audio_players
+	for p in players_list:
+		if p != null:
+			p.stop()
 
 func _clear_godot_audio_buffer(id: int) -> void:
 	if _android_plugin:
 		_android_plugin.clearAudioBuffer(id)
 	if not players.has(id) or not players[id].route_audio_to_godot:
 		return
-	var audio_player = players[id].godot_audio_player
-	if audio_player != null:
-		audio_player.stop()
-		audio_player.play()
-		players[id].godot_audio_playback = audio_player.get_stream_playback()
+	var players_list = players[id].godot_audio_players
+	var playbacks_list = players[id].godot_audio_playbacks
+	for i in range(players_list.size()):
+		var p = players_list[i]
+		if p != null:
+			p.stop()
+			p.play()
+			playbacks_list[i] = p.get_stream_playback()
+	if playbacks_list.size() > 0:
+		players[id].godot_audio_playback = playbacks_list[0]
 
 func _apply_godot_audio_volume(id: int) -> void:
 	if not players.has(id) or not players[id].route_audio_to_godot:
 		return
-	var audio_player = players[id].godot_audio_player
-	if audio_player != null:
-		audio_player.volume_linear = players[id].logical_volume
+	var players_list = players[id].godot_audio_players
+	for p in players_list:
+		if p != null:
+			p.volume_linear = players[id].logical_volume
 
 func _release_godot_audio(id: int) -> void:
 	if not players.has(id):
 		return
-	var audio_player = players[id].godot_audio_player
-	if audio_player != null:
-		audio_player.stop()
+	var players_list = players[id].godot_audio_players
+	for p in players_list:
+		if p != null:
+			p.stop()
 	if _managed_audio_players.has(id):
-		_managed_audio_players[id].queue_free()
+		var managed_list = _managed_audio_players[id]
+		if managed_list is Array:
+			for p in managed_list:
+				if p != null:
+					p.queue_free()
+		else:
+			if managed_list != null:
+				managed_list.queue_free()
 		_managed_audio_players.erase(id)
+	players[id].godot_audio_players = []
+	players[id].godot_audio_streams = []
+	players[id].godot_audio_playbacks = []
 	players[id].godot_audio_player = null
 	players[id].godot_audio_stream = null
 	players[id].godot_audio_playback = null
