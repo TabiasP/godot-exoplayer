@@ -17,7 +17,6 @@ android {
 
     defaultConfig {
         minSdk = 24
-        targetSdk= 35
         manifestPlaceholders["godotPluginName"] = pluginName
         manifestPlaceholders["godotPluginPackageName"] = pluginPackageName
         buildConfigField("String", "GODOT_PLUGIN_NAME", "\"$pluginName\"")
@@ -38,7 +37,6 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.6.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.6.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.6.1")
-    implementation("androidx.media3:media3-ui:1.6.1")
 }
 
 // Set the archivesBaseName using the public API (requires the base plugin to be applied)
@@ -61,24 +59,27 @@ val copyReleaseAARToDemoAddons by tasks.registering(Copy::class) {
     into("demo/addons/$pluginName/bin/release")
 }
 
-val cleanDemoAddons by tasks.registering(Delete::class) {
-    delete("demo/addons/$pluginName")
-}
-
 val copyAddonsToDemo by tasks.registering(Copy::class) {
     description = "Copies the export scripts templates to the plugin's addons directory"
-    dependsOn(cleanDemoAddons)
-    // Both debug and release tasks should be finalized after this copy finishes
-    finalizedBy(copyDebugAARToDemoAddons)
-    finalizedBy(copyReleaseAARToDemoAddons)
     from("export_scripts_template")
     into("demo/addons/$pluginName")
 }
 
-tasks.named("assemble").configure {
-    finalizedBy(copyAddonsToDemo)
-}
-
-tasks.named<Delete>("clean").configure {
-    dependsOn(cleanDemoAddons)
+val packageAddon by tasks.registering(Zip::class) {
+    description = "Builds a deterministic installable Godot addon archive"
+    group = "distribution"
+    dependsOn("assembleDebug", "assembleRelease")
+    archiveFileName.set("$pluginName-addon.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+    from("export_scripts_template") {
+        into("addons/$pluginName")
+    }
+    from("build/outputs/aar/$pluginName-debug.aar") {
+        into("addons/$pluginName/bin/debug")
+    }
+    from("build/outputs/aar/$pluginName-release.aar") {
+        into("addons/$pluginName/bin/release")
+    }
 }

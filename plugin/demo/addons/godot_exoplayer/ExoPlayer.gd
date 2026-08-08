@@ -1,9 +1,11 @@
 extends Node
 
+signal player_created(id: int)
 signal player_ready(id: int, duration:float)
 signal player_error(id: int, error_message: String)
 signal video_end(id: int)
 signal player_state_changed(id: int, state: int)
+signal subtitle_cues(id: int, cues: PackedStringArray)
 
 
 var _plugin_name = "godot_exoplayer"
@@ -18,6 +20,10 @@ var _managed_audio_players : Dictionary = {}
 const DEFAULT_GODOT_AUDIO_BUFFER_LENGTH := 0.5
 const DEFAULT_GODOT_AUDIO_MIX_RATE := 48000
 const GODOT_AUDIO_POLL_FRAMES := 2048
+const STATE_IDLE := 1
+const STATE_BUFFERING := 2
+const STATE_READY := 3
+const STATE_ENDED := 4
 
 func _ready() -> void:
 	##load plugin
@@ -38,6 +44,8 @@ func create_player(android_surface, video_uri: String, options: Dictionary = {})
 		android_config.erase("godotAudioBufferLength")
 
 		players[new_id] = {
+			"native_created": false,
+			"state": STATE_IDLE,
 			"is_ready": false,
 			"duration": -1.0,
 			"error": null,
@@ -51,6 +59,7 @@ func create_player(android_surface, video_uri: String, options: Dictionary = {})
 			"godot_audio_player": null, # Backwards compatibility
 			"godot_audio_stream": null,  # Backwards compatibility
 			"godot_audio_playback": null, # Backwards compatibility
+			"godot_audio_original_states": [],
 			"godot_audio_sample_rate": 0,
 			"godot_audio_buffer_length": float(config.get("godotAudioBufferLength", DEFAULT_GODOT_AUDIO_BUFFER_LENGTH)),
 			"logical_volume": float(config.get("volume", 1.0)),
@@ -67,15 +76,28 @@ func create_player(android_surface, video_uri: String, options: Dictionary = {})
 		return new_id
 	return -1
 
+## Creates a normal, unprotected URL player. DRM is never required for this path.
+func create_url_player(android_surface, video_uri: String, options: Dictionary = {}) -> int:
+	var config := options.duplicate(true)
+	config["clearDrm"] = true
+	return create_player(android_surface, video_uri, config)
+
+## Creates a Widevine player without making DRM part of the common URL workflow.
+func create_drm_player(android_surface, video_uri: String, license_url: String, request_headers: Dictionary = {}, options: Dictionary = {}) -> int:
+	var config := options.duplicate(true)
+	config["clearDrm"] = false
+	config["drm"] = {
+		"scheme": "widevine",
+		"licenseUrl": license_url,
+		"requestHeaders": request_headers
+	}
+	return create_player(android_surface, video_uri, config)
+
 ## Backwards-compatible helper for the original Widevine-focused API.
 func create_exoplayer_instance(android_surface, video_uri, license_url : String = "") -> int:
-	var options := {}
 	if license_url != "":
-		options["drm"] = {
-			"scheme": "widevine",
-			"licenseUrl": license_url
-		}
-	return create_player(android_surface, video_uri, options)
+		return create_drm_player(android_surface, video_uri, license_url)
+	return create_url_player(android_surface, video_uri)
 
 #region Player Controls
 
@@ -88,6 +110,12 @@ func pause(id):
 		_android_plugin.pause(id)
 		_pause_godot_audio(id)
 
+func stop(id: int) -> void:
+	if _android_plugin:
+		_clear_godot_audio_buffer(id)
+		_android_plugin.stop(id)
+		_pause_godot_audio(id)
+
 func seekTo(id, positionMs):
 	if _android_plugin:
 		_clear_godot_audio_buffer(id)
@@ -98,17 +126,50 @@ func seekBy(id, deltaMs):
 		_clear_godot_audio_buffer(id)
 		_android_plugin.seekBy(id, deltaMs)
 
+func seek_to(id: int, position_ms: int) -> void:
+	seekTo(id, position_ms)
+
+func seek_by(id: int, delta_ms: int) -> void:
+	seekBy(id, delta_ms)
+
 
 ## Returns the Playback Position in the current content in ms
 func getCurrentPlaybackPosition(id):
 	if _android_plugin:
 		return _android_plugin.getCurrentPosition(id)
 
+func get_position_ms(id: int) -> int:
+	return int(getCurrentPlaybackPosition(id))
+
 ## Returns the duration of the current content in ms
 func getVideoDuration(id):
 	if is_player_ready(id):
 		return players[id].duration
 	return -1.0
+
+func get_duration_ms(id: int) -> int:
+	return int(getVideoDuration(id))
+
+func is_playing(id: int) -> bool:
+	return _android_plugin != null and players.has(id) and _android_plugin.isPlaying(id)
+
+func get_playback_state(id: int) -> int:
+	return _android_plugin.getPlaybackState(id) if _android_plugin and players.has(id) else 1
+
+func get_buffered_position(id: int) -> int:
+	return int(_android_plugin.getBufferedPosition(id)) if _android_plugin and players.has(id) else -1
+
+func set_surface(id: int, android_surface) -> void:
+	if _android_plugin and players.has(id) and android_surface:
+		_android_plugin.setSurface(id, android_surface)
+		players[id].surface = android_surface
+
+func clear_surface(id: int) -> void:
+	if _android_plugin and players.has(id):
+		_android_plugin.clearSurface(id)
+
+func get_audio_bridge_stats(id: int) -> Dictionary:
+	return _android_plugin.getAudioFormat(id) if _android_plugin and players.has(id) else {}
 
 func setPlayerVolume(id: int, volume: float):
 	if _android_plugin:
@@ -123,6 +184,12 @@ func getPlayerVolume(id:int):
 	if _android_plugin:
 		return _android_plugin.getVolume(id)
 
+func set_volume(id: int, volume: float) -> void:
+	setPlayerVolume(id, volume)
+
+func get_volume(id: int) -> float:
+	return float(getPlayerVolume(id))
+
 func setRepeatMode(id: int, mode: int):
 	if _android_plugin:
 		_android_plugin.setRepeatMode(id, mode)
@@ -133,13 +200,17 @@ func setPlaybackSpeed(id: int, speed: float):
 
 func setMedia(id: int, video_uri: String, options: Dictionary = {}):
 	if _android_plugin and players.has(id):
-		var config := options.duplicate(true)
+		# Preserve optional setup such as caller-owned audio nodes unless overridden.
+		var config: Dictionary = players[id].options.duplicate(true)
+		config.merge(options, true)
 		config["uri"] = video_uri
 		config["routeAudioToGodot"] = players[id].route_audio_to_godot
 		if not config.has("volume"):
 			config["volume"] = players[id].logical_volume
 		var android_config := config.duplicate(true)
 		android_config.erase("godotAudioPlayer")
+		android_config.erase("godotAudioPlayers")
+		android_config.erase("spatialAudioMode")
 		android_config.erase("godotAudioBufferLength")
 		_clear_godot_audio_buffer(id)
 		_android_plugin.setMedia(id, android_config)
@@ -153,6 +224,27 @@ func setMedia(id: int, video_uri: String, options: Dictionary = {}):
 			_setup_godot_audio(id, config)
 		else:
 			_release_godot_audio(id)
+
+func set_media(id: int, video_uri: String, options: Dictionary = {}) -> void:
+	setMedia(id, video_uri, options)
+
+## Switches an existing player to unprotected media and removes inherited DRM.
+func set_url(id: int, video_uri: String, options: Dictionary = {}) -> void:
+	var config := options.duplicate(true)
+	config.erase("drm")
+	config["clearDrm"] = true
+	setMedia(id, video_uri, config)
+
+## Switches an existing player to Widevine-protected media.
+func set_drm_media(id: int, video_uri: String, license_url: String, request_headers: Dictionary = {}, options: Dictionary = {}) -> void:
+	var config := options.duplicate(true)
+	config["clearDrm"] = false
+	config["drm"] = {
+		"scheme": "widevine",
+		"licenseUrl": license_url,
+		"requestHeaders": request_headers
+	}
+	setMedia(id, video_uri, config)
 
 func getAvailableAudioTracks(id: int):
 	if _android_plugin:
@@ -196,14 +288,31 @@ func release_player(id:int) -> void:
 
 func getVideoResolutions(id: int) :
 	if _android_plugin and players.has(id):
-		var tracks  = _android_plugin.getResolutions(id)
-		print("id: ", tracks)
-		return tracks
+		return _android_plugin.getResolutions(id)
+	return []
 
 func setVideoResolution(id: int, width : int, height: int):
 	if _android_plugin and players.has(id):
 		_android_plugin.setResolution(id, width, height)
-	pass
+
+func get_video_tracks(id: int) -> Array:
+	return Array(_android_plugin.getVideoTracks(id)) if _android_plugin and players.has(id) else []
+
+func select_video_track(id: int, track_index: int) -> void:
+	if _android_plugin and players.has(id):
+		_android_plugin.setVideoTrack(id, track_index)
+
+func get_audio_tracks(id: int) -> Array:
+	return Array(getAvailableAudioTracks(id))
+
+func select_audio_track(id: int, track_index: int) -> void:
+	setAudioTrack(id, track_index)
+
+func get_subtitle_tracks(id: int) -> Array:
+	return Array(getAvailableTextTracks(id))
+
+func select_subtitle_track(id: int, track_index: int) -> void:
+	setTextTrack(id, track_index)
 
 func _process(_delta: float) -> void:
 	if not _android_plugin:
@@ -235,10 +344,20 @@ func _setup_godot_audio(id: int, config: Dictionary) -> void:
 
 	var streams_list = []
 	var playbacks_list = []
+	var original_states = []
 	var sample_rate_val = DEFAULT_GODOT_AUDIO_MIX_RATE
 	var buffer_length_val = float(config.get("godotAudioBufferLength", DEFAULT_GODOT_AUDIO_BUFFER_LENGTH))
 
 	for p in players_list:
+		var original_state := {}
+		if p != null and not managed_list.has(p):
+			original_state = {
+				"stream": p.stream,
+				"volume_linear": p.volume_linear,
+				"playing": p.playing,
+				"position": p.get_playback_position() if p.playing else 0.0
+			}
+		original_states.append(original_state)
 		if p != null:
 			var stream := AudioStreamGenerator.new()
 			stream.mix_rate = sample_rate_val
@@ -255,6 +374,7 @@ func _setup_godot_audio(id: int, config: Dictionary) -> void:
 	players[id].godot_audio_players = players_list
 	players[id].godot_audio_streams = streams_list
 	players[id].godot_audio_playbacks = playbacks_list
+	players[id].godot_audio_original_states = original_states
 	players[id].godot_audio_sample_rate = sample_rate_val
 	players[id].godot_audio_buffer_length = buffer_length_val
 
@@ -315,21 +435,28 @@ func _pump_godot_audio(id: int) -> void:
 		var p0_playback = playbacks_list[0]
 		var p1_playback = playbacks_list[1]
 		if p0_playback != null and p1_playback != null:
+			var left_frames := PackedVector2Array()
+			var right_frames := PackedVector2Array()
+			left_frames.resize(frame_count)
+			right_frames.resize(frame_count)
 			for frame in range(frame_count):
 				var left = samples[frame * 2]
 				var right = samples[frame * 2 + 1]
-				p0_playback.push_frame(Vector2(left, left))
-				p1_playback.push_frame(Vector2(right, right))
+				left_frames[frame] = Vector2(left, left)
+				right_frames[frame] = Vector2(right, right)
+			p0_playback.push_buffer(left_frames)
+			p1_playback.push_buffer(right_frames)
 	else:
 		# Duplicated Stereo
+		var frames := PackedVector2Array()
+		frames.resize(frame_count)
 		for frame in range(frame_count):
 			var left = samples[frame * 2]
 			var right = samples[frame * 2 + 1]
-			var frame_vec = Vector2(left, right)
-			for i in range(playbacks_list.size()):
-				var playback = playbacks_list[i]
-				if playback != null:
-					playback.push_frame(frame_vec)
+			frames[frame] = Vector2(left, right)
+		for playback in playbacks_list:
+			if playback != null:
+				playback.push_buffer(frames)
 
 func _update_godot_audio_format(id: int) -> void:
 	var format: Dictionary = _android_plugin.getAudioFormat(id)
@@ -418,9 +545,17 @@ func _release_godot_audio(id: int) -> void:
 	if not players.has(id):
 		return
 	var players_list = players[id].godot_audio_players
-	for p in players_list:
+	var original_states = players[id].get("godot_audio_original_states", [])
+	for i in range(players_list.size()):
+		var p = players_list[i]
 		if p != null:
 			p.stop()
+			if i < original_states.size() and not original_states[i].is_empty():
+				var state: Dictionary = original_states[i]
+				p.stream = state.stream
+				p.volume_linear = state.volume_linear
+				if state.playing:
+					p.play(state.position)
 	if _managed_audio_players.has(id):
 		var managed_list = _managed_audio_players[id]
 		if managed_list is Array:
@@ -437,6 +572,7 @@ func _release_godot_audio(id: int) -> void:
 	players[id].godot_audio_player = null
 	players[id].godot_audio_stream = null
 	players[id].godot_audio_playback = null
+	players[id].godot_audio_original_states = []
 
 
 #endregion
@@ -445,10 +581,17 @@ func _release_godot_audio(id: int) -> void:
 
 func connect_plugin_signals() -> void:
 	if _android_plugin:
+		_android_plugin.connect("on_player_created", _on_player_created)
 		_android_plugin.connect("on_player_ready",_on_player_ready)
 		_android_plugin.connect("on_player_error", _on_player_error)
 		_android_plugin.connect("on_video_end", _on_video_end)
 		_android_plugin.connect("on_player_state_changed", _on_player_state_changed)
+		_android_plugin.connect("on_subtitle_cues", _on_subtitle_cues)
+
+func _on_player_created(id: int) -> void:
+	if players.has(id):
+		players[id].native_created = true
+	emit_signal("player_created", id)
 
 func _on_player_ready(id: int, duration: int) -> void:
 	if players.has(id):
@@ -471,7 +614,12 @@ func _on_video_end(id: int) -> void:
 	emit_signal("video_end", id)
 
 func _on_player_state_changed(id: int, state: int) -> void:
+	if players.has(id):
+		players[id].state = state
 	emit_signal("player_state_changed", id, state)
+
+func _on_subtitle_cues(id: int, cues: Array) -> void:
+	emit_signal("subtitle_cues", id, PackedStringArray(cues))
 
 func _exit_tree() -> void:
 	for id in players.keys():

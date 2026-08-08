@@ -2,18 +2,19 @@ package org.godotengine.plugin.android.godot_exoplayer
 
 import android.content.Context
 import android.net.Uri
+import android.os.Looper
 import android.util.Log
 import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.media3.common.C
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
-import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.Log as ExoLogger
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.util.Util
 import androidx.media3.database.DatabaseProvider
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
@@ -24,13 +25,9 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.NoOpCacheEvictor
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.DefaultAudioSink
-import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManagerProvider
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
@@ -41,300 +38,50 @@ import org.godotengine.godot.plugin.GodotPlugin
 import org.godotengine.godot.plugin.SignalInfo
 import org.godotengine.godot.plugin.UsedByGodot
 import java.io.File
-import java.net.CookieHandler
-import java.net.CookieManager
-import java.net.CookiePolicy
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
-import kotlin.math.min
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 @UnstableApi
 class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
-    private data class DrmConfig(
-        val scheme: String,
-        val licenseUrl: String,
-        val requestHeaders: Map<String, String>
-    )
-
-    private data class PlayerConfig(
-        val uri: Uri,
-        val autoplay: Boolean,
-        val volume: Float,
-        val repeatMode: Int,
-        val playbackSpeed: Float,
-        val useCache: Boolean,
-        val parseProgramDateTime: Boolean,
-        val debugLogging: Boolean,
-        val routeAudioToGodot: Boolean,
-        val drm: DrmConfig?
-    )
-
-    private class GodotAudioBuffer {
-        private val chunks = ArrayDeque<FloatArray>()
-        private var headOffsetFrames = 0
-        private var queuedFrames = 0
-        private var sampleRate = 0
-        private var channelCount = 0
-        private var encoding = C.ENCODING_INVALID
-        private val maxQueuedFrames = 96_000
-
-        @Synchronized
-        fun configure(sampleRate: Int, channelCount: Int, encoding: Int) {
-            this.sampleRate = sampleRate
-            this.channelCount = channelCount
-            this.encoding = encoding
-            clear()
-        }
-
-        @Synchronized
-        fun append(buffer: ByteBuffer) {
-            if (sampleRate <= 0 || channelCount <= 0) return
-            val bytesPerSample = bytesPerSample(encoding)
-            if (bytesPerSample <= 0) return
-
-            val source = buffer.slice().order(ByteOrder.LITTLE_ENDIAN)
-            val frameCount = source.remaining() / (bytesPerSample * channelCount)
-            if (frameCount <= 0) return
-
-            val frames = FloatArray(frameCount * OUTPUT_CHANNELS)
-            for (frame in 0 until frameCount) {
-                var left = 0f
-                var right = 0f
-                for (channel in 0 until channelCount) {
-                    val sample = readSample(source, encoding)
-                    if (channel == 0) {
-                        left = sample
-                        right = sample
-                    } else if (channel == 1) {
-                        right = sample
-                    }
-                }
-                val out = frame * OUTPUT_CHANNELS
-                frames[out] = left
-                frames[out + 1] = right
-            }
-
-            chunks.addLast(frames)
-            queuedFrames += frameCount
-            trimToLimit()
-        }
-
-        @Synchronized
-        fun poll(maxFrames: Int): FloatArray {
-            val requestedFrames = maxFrames.coerceAtLeast(0)
-            if (requestedFrames == 0 || queuedFrames == 0) return FloatArray(0)
-
-            val framesToRead = min(requestedFrames, queuedFrames)
-            val output = FloatArray(framesToRead * OUTPUT_CHANNELS)
-            var framesRead = 0
-
-            while (framesRead < framesToRead && chunks.isNotEmpty()) {
-                val chunk = chunks.first()
-                val availableFrames = (chunk.size / OUTPUT_CHANNELS) - headOffsetFrames
-                val copyFrames = min(framesToRead - framesRead, availableFrames)
-                System.arraycopy(
-                    chunk,
-                    headOffsetFrames * OUTPUT_CHANNELS,
-                    output,
-                    framesRead * OUTPUT_CHANNELS,
-                    copyFrames * OUTPUT_CHANNELS
-                )
-                framesRead += copyFrames
-                queuedFrames -= copyFrames
-                headOffsetFrames += copyFrames
-
-                if (headOffsetFrames >= chunk.size / OUTPUT_CHANNELS) {
-                    chunks.removeFirst()
-                    headOffsetFrames = 0
-                }
-            }
-
-            return output
-        }
-
-        @Synchronized
-        fun clear() {
-            chunks.clear()
-            headOffsetFrames = 0
-            queuedFrames = 0
-        }
-
-        @Synchronized
-        fun formatDictionary() = Dictionary().apply {
-            put("sampleRate", sampleRate)
-            put("channelCount", channelCount)
-            put("encoding", encoding)
-            put("queuedFrames", queuedFrames)
-        }
-
-        private fun trimToLimit() {
-            while (queuedFrames > maxQueuedFrames && chunks.isNotEmpty()) {
-                val chunk = chunks.first()
-                val availableFrames = (chunk.size / OUTPUT_CHANNELS) - headOffsetFrames
-                val framesToDrop = min(queuedFrames - maxQueuedFrames, availableFrames)
-                queuedFrames -= framesToDrop
-                headOffsetFrames += framesToDrop
-                if (headOffsetFrames >= chunk.size / OUTPUT_CHANNELS) {
-                    chunks.removeFirst()
-                    headOffsetFrames = 0
-                }
-            }
-        }
-
-        private fun bytesPerSample(encoding: Int): Int {
-            return when (encoding) {
-                C.ENCODING_PCM_8BIT -> 1
-                C.ENCODING_PCM_16BIT -> 2
-                C.ENCODING_PCM_24BIT -> 3
-                C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> 4
-                else -> 0
-            }
-        }
-
-        private fun readSample(buffer: ByteBuffer, encoding: Int): Float {
-            return when (encoding) {
-                C.ENCODING_PCM_8BIT -> ((buffer.get().toInt() and 0xFF) - 128) / 128f
-                C.ENCODING_PCM_16BIT -> (buffer.short / 32768f).coerceIn(-1f, 1f)
-                C.ENCODING_PCM_24BIT -> {
-                    val value = (buffer.get().toInt() and 0xFF) or
-                        ((buffer.get().toInt() and 0xFF) shl 8) or
-                        (buffer.get().toInt() shl 16)
-                    (value / 8388608f).coerceIn(-1f, 1f)
-                }
-                C.ENCODING_PCM_32BIT -> {
-                    (buffer.int / 2147483648f).coerceIn(-1f, 1f)
-                }
-                C.ENCODING_PCM_FLOAT -> buffer.float.coerceIn(-1f, 1f)
-                else -> 0f
-            }
-        }
-
-        companion object {
-            private const val OUTPUT_CHANNELS = 2
-        }
-    }
-
-    private class GodotAudioSink(private val audioBuffer: GodotAudioBuffer) : TeeAudioProcessor.AudioBufferSink {
-        override fun flush(sampleRateHz: Int, channelCount: Int, encoding: Int) {
-            Log.d("GodotAudioSink", "flush: sampleRateHz=$sampleRateHz, channelCount=$channelCount, encoding=$encoding")
-            audioBuffer.configure(sampleRateHz, channelCount, encoding)
-        }
-
-        override fun handleBuffer(buffer: ByteBuffer) {
-            audioBuffer.append(buffer)
-        }
-    }
-
-    private class SilenceAudioProcessor : AudioProcessor {
-        private var inputFormat = AudioProcessor.AudioFormat.NOT_SET
-        private var outputBuffer = AudioProcessor.EMPTY_BUFFER
-        private var active = false
-        private var inputEnded = false
-
-        override fun configure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-            inputFormat = inputAudioFormat
-            active = true
-            return inputAudioFormat
-        }
-
-        override fun isActive(): Boolean = active
-
-        override fun queueInput(inputBuffer: ByteBuffer) {
-            val remaining = inputBuffer.remaining()
-            if (remaining == 0) return
-
-            if (outputBuffer.capacity() < remaining) {
-                outputBuffer = ByteBuffer.allocateDirect(remaining).order(ByteOrder.nativeOrder())
-            } else {
-                outputBuffer.clear()
-            }
-
-            val zeroArray = ByteArray(remaining)
-            outputBuffer.put(zeroArray)
-            outputBuffer.flip()
-
-            inputBuffer.position(inputBuffer.limit())
-        }
-
-        override fun queueEndOfStream() {
-            inputEnded = true
-        }
-
-        override fun getOutput(): ByteBuffer {
-            val output = outputBuffer
-            outputBuffer = AudioProcessor.EMPTY_BUFFER
-            return output
-        }
-
-        override fun isEnded(): Boolean {
-            return inputEnded && outputBuffer == AudioProcessor.EMPTY_BUFFER
-        }
-
-        override fun flush() {
-            outputBuffer = AudioProcessor.EMPTY_BUFFER
-            inputEnded = false
-        }
-
-        override fun reset() {
-            flush()
-            inputFormat = AudioProcessor.AudioFormat.NOT_SET
-            active = false
-        }
-    }
-
-    private class GodotAudioRenderersFactory(
-        context: Context,
-        private val audioBuffer: GodotAudioBuffer
-    ) : DefaultRenderersFactory(context) {
-        override fun buildAudioSink(
-            context: Context,
-            enableFloatOutput: Boolean,
-            enableAudioTrackPlaybackParams: Boolean
-        ): AudioSink {
-            return DefaultAudioSink.Builder(context)
-                .setAudioProcessors(arrayOf<AudioProcessor>(
-                    TeeAudioProcessor(GodotAudioSink(audioBuffer)),
-                    SilenceAudioProcessor()
-                ))
-                .setEnableFloatOutput(enableFloatOutput)
-                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                .build()
-        }
-    }
-
     override fun getPluginName() = BuildConfig.GODOT_PLUGIN_NAME
 
     override fun getPluginSignals() = mutableSetOf(
+        SignalInfo("on_player_created", Integer::class.java),
         SignalInfo("on_player_ready", Integer::class.java, Integer::class.java),
         SignalInfo("on_video_end", Integer::class.java),
         SignalInfo("on_player_error", Integer::class.java, String::class.java),
-        SignalInfo("on_player_state_changed", Integer::class.java, Integer::class.java)
+        SignalInfo("on_player_state_changed", Integer::class.java, Integer::class.java),
+        SignalInfo("on_subtitle_cues", Integer::class.java, Array<String>::class.java)
     )
 
-    private val exoPlayers = mutableMapOf<Int, ExoPlayer>()
-    private val drmConfigurations = mutableMapOf<Int, Dictionary>()
-    private val playerConfigurations = mutableMapOf<Int, PlayerConfig>()
-    private val programDateTimes = mutableMapOf<Int, String>()
-    private val audioBuffers = mutableMapOf<Int, GodotAudioBuffer>()
+    private val exoPlayers = ConcurrentHashMap<Int, ExoPlayer>()
+    private val drmConfigurations = ConcurrentHashMap<Int, Dictionary>()
+    private val playerConfigurations = ConcurrentHashMap<Int, PlayerConfig>()
+    private val programDateTimes = ConcurrentHashMap<Int, String>()
+    private val audioBuffers = ConcurrentHashMap<Int, GodotPcmBuffer>()
 
     private var downloadDirectory: File? = null
     private var downloadCache: Cache? = null
     private var databaseProvider: DatabaseProvider? = null
+    private var cacheMaxBytes: Long = DEFAULT_CACHE_MAX_BYTES
+    private val ioExecutor = Executors.newSingleThreadExecutor()
+    private val resumeAfterAppPause = mutableSetOf<Int>()
 
     // --- ExoPlayer Management ---
 
     @UsedByGodot
     fun createExoPlayer(id: Int, surface: Surface, config: Dictionary) = runOnUiThread {
         try {
+            require(surface.isValid) { "OpenXR composition-layer surface is not valid" }
             val playerConfig = buildPlayerConfig(id, config)
             val context = activity as Context
-            val dataSourceFactory = buildDataSourceFactory(context, playerConfig.useCache)
+            val dataSourceFactory = buildDataSourceFactory(context, playerConfig)
 
-            ExoLogger.setLogLevel(if (playerConfig.debugLogging) ExoLogger.LOG_LEVEL_ALL else ExoLogger.LOG_LEVEL_WARNING)
             exoPlayers.remove(id)?.release()
             programDateTimes[id] = ""
 
@@ -342,7 +89,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
                 .setMediaSourceFactory(buildMediaSourceFactory(context, dataSourceFactory))
             if (playerConfig.routeAudioToGodot) {
                 playerBuilder.setRenderersFactory(
-                    GodotAudioRenderersFactory(context, audioBuffers.getOrPut(id) { GodotAudioBuffer() })
+                    GodotAudioRenderersFactory(context, audioBuffers.getOrPut(id) { GodotPcmBuffer() })
                 )
             } else {
                 audioBuffers.remove(id)
@@ -354,12 +101,14 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
             exoPlayers[id] = player
             playerConfigurations[id] = playerConfig
+            updateGlobalLogLevel()
+            emitSignal("on_player_created", id)
 
             if (playerConfig.autoplay) {
                 player.play()
             }
             if (playerConfig.parseProgramDateTime) {
-                parseProgramDateTime(id, playerConfig.uri, dataSourceFactory)
+                parseProgramDateTimeAsync(id, playerConfig.uri, dataSourceFactory)
             }
 
             Log.v(pluginName, "ExoPlayer($id) created with media: ${playerConfig.uri}")
@@ -379,8 +128,10 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     fun releaseExoPlayer(id: Int) = runOnUiThread {
         exoPlayers.remove(id)?.release()?.also {
             playerConfigurations.remove(id)
+            drmConfigurations.remove(id)
             programDateTimes.remove(id)
             audioBuffers.remove(id)
+            updateGlobalLogLevel()
             Log.v(pluginName, "ExoPlayer($id) released and removed.")
         } ?: Log.e(pluginName, "ExoPlayer($id) not found when attempting to release")
     }
@@ -397,6 +148,12 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
     @UsedByGodot
     fun pause(id: Int) = runOnUiThread { exoPlayers[id]?.pause() ?: logNotFound(id, "pause") }
+
+    @UsedByGodot
+    fun stop(id: Int) = runOnUiThread {
+        audioBuffers[id]?.clear()
+        exoPlayers[id]?.stop() ?: logNotFound(id, "stop")
+    }
 
     @UsedByGodot
     fun seekTo(id: Int, positionMs: Long) = runOnUiThread {
@@ -444,16 +201,21 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             if (playerConfig.routeAudioToGodot != playerConfigurations[id]?.routeAudioToGodot) {
                 throw IllegalArgumentException("routeAudioToGodot cannot be changed with setMedia; recreate the player")
             }
-            val dataSourceFactory = buildDataSourceFactory(activity as Context, playerConfig.useCache)
+            val context = activity as Context
+            val dataSourceFactory = buildDataSourceFactory(context, playerConfig)
 
             audioBuffers[id]?.clear()
-            player.setMediaItem(buildMediaItem(playerConfig))
+            player.setMediaSource(
+                buildMediaSourceFactory(context, dataSourceFactory)
+                    .createMediaSource(buildMediaItem(playerConfig))
+            )
             player.prepare()
             playerConfigurations[id] = playerConfig
+            updateGlobalLogLevel()
             programDateTimes[id] = ""
 
             if (playerConfig.parseProgramDateTime) {
-                parseProgramDateTime(id, playerConfig.uri, dataSourceFactory)
+                parseProgramDateTimeAsync(id, playerConfig.uri, dataSourceFactory)
             }
             if (playerConfig.autoplay) {
                 player.play()
@@ -506,6 +268,33 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         audioBuffers[id]?.clear()
     }
 
+    @UsedByGodot
+    fun setSurface(id: Int, surface: Surface) = runOnUiThread {
+        if (!surface.isValid) {
+            emitAndLogError(id, "Cannot attach an invalid OpenXR composition-layer surface")
+            return@runOnUiThread
+        }
+        exoPlayers[id]?.setVideoSurface(surface) ?: logNotFound(id, "setSurface")
+    }
+
+    @UsedByGodot
+    fun clearSurface(id: Int) = runOnUiThread {
+        exoPlayers[id]?.clearVideoSurface() ?: logNotFound(id, "clearSurface")
+    }
+
+    @UsedByGodot
+    fun isPlaying(id: Int): Boolean = runAndWaitUI { exoPlayers[id]?.isPlaying ?: false }
+
+    @UsedByGodot
+    fun getPlaybackState(id: Int): Int = runAndWaitUI {
+        exoPlayers[id]?.playbackState ?: Player.STATE_IDLE
+    }
+
+    @UsedByGodot
+    fun getBufferedPosition(id: Int): Long = runAndWaitUI {
+        exoPlayers[id]?.bufferedPosition ?: -1L
+    }
+
     // --- Tracks & Resolutions ---
 
     @UsedByGodot
@@ -533,13 +322,50 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     }
 
     @UsedByGodot
+    fun getVideoTracks(id: Int): Array<Dictionary> = runAndWaitUI {
+        buildTrackList(id, C.TRACK_TYPE_VIDEO) { format, index, selected, supported ->
+            Dictionary().apply {
+                put("index", index)
+                put("width", format.width)
+                put("height", format.height)
+                put("bitrate", format.bitrate)
+                put("frameRate", format.frameRate)
+                put("mimeType", format.sampleMimeType ?: "")
+                put("codecs", format.codecs ?: "")
+                put("selected", selected)
+                put("supported", supported)
+            }
+        }
+    }.toTypedArray()
+
+    @UsedByGodot
+    fun setVideoTrack(id: Int, videoTrackIndex: Int) = runOnUiThread {
+        val player = exoPlayers[id] ?: return@runOnUiThread logNotFound(id, "setVideoTrack")
+        val builder = player.trackSelectionParameters.buildUpon()
+        if (videoTrackIndex == -1) {
+            player.trackSelectionParameters = builder.clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
+            return@runOnUiThread
+        }
+        val selection = findTrackSelection(player, C.TRACK_TYPE_VIDEO, videoTrackIndex) ?: return@runOnUiThread
+        val group = player.currentTracks.groups[selection.first]
+        player.trackSelectionParameters = builder
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, selection.second))
+            .build()
+    }
+
+    @UsedByGodot
     fun getAudioTracks(id: Int): Array<Dictionary> = runAndWaitUI {
-        buildTrackList(id, C.TRACK_TYPE_AUDIO) { format, index ->
+        buildTrackList(id, C.TRACK_TYPE_AUDIO) { format, index, selected, supported ->
             Dictionary().apply {
                 put("index", index)
                 put("language", format.language ?: "und")
                 put("channels", format.channelCount)
                 put("sampleRate", format.sampleRate)
+                put("label", format.label ?: "")
+                put("bitrate", format.bitrate)
+                put("mimeType", format.sampleMimeType ?: "")
+                put("selected", selected)
+                put("supported", supported)
             }
         }
     }.toTypedArray()
@@ -548,20 +374,24 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     fun setAudioTrack(id: Int, audioTrackIndex: Int) = runOnUiThread {
         val player = exoPlayers[id] ?: return@runOnUiThread logNotFound(id, "setAudioTrack")
         val selection = findTrackSelection(player, C.TRACK_TYPE_AUDIO, audioTrackIndex) ?: return@runOnUiThread
-        val language = player.currentTracks.groups[selection.first].getTrackFormat(selection.second).language ?: "und"
+        val group = player.currentTracks.groups[selection.first]
         audioBuffers[id]?.clear()
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .setPreferredAudioLanguages(language).build()
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, selection.second))
+            .build()
         Log.v(pluginName, "ExoPlayer($id) set audio track $audioTrackIndex")
     }
 
     @UsedByGodot
     fun getTextTracks(id: Int): Array<Dictionary> = runAndWaitUI {
-        buildTrackList(id, C.TRACK_TYPE_TEXT) { format, index ->
+        buildTrackList(id, C.TRACK_TYPE_TEXT) { format, index, selected, supported ->
             Dictionary().apply {
                 put("index", index)
                 put("language", format.language ?: "und")
                 put("label", format.label ?: "")
+                put("mimeType", format.sampleMimeType ?: "")
+                put("selected", selected)
+                put("supported", supported)
             }
         }
     }.toTypedArray()
@@ -578,10 +408,11 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         }
 
         val selection = findTrackSelection(player, C.TRACK_TYPE_TEXT, textTrackIndex) ?: return@runOnUiThread
-        val language = player.currentTracks.groups[selection.first].getTrackFormat(selection.second).language ?: "und"
+        val group = player.currentTracks.groups[selection.first]
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-            .setPreferredTextLanguages(language).build()
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, selection.second))
+            .build()
         Log.v(pluginName, "ExoPlayer($id) set text track $textTrackIndex")
     }
 
@@ -619,8 +450,33 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             playerConfigurations.clear()
             programDateTimes.clear()
             audioBuffers.clear()
+            downloadCache?.release()
+            downloadCache = null
+            databaseProvider = null
         }
+        ioExecutor.shutdownNow()
         super.onMainDestroy()
+    }
+
+    override fun onMainPause() {
+        runOnUiThread {
+            resumeAfterAppPause.clear()
+            exoPlayers.forEach { (id, player) ->
+                if (playerConfigurations[id]?.pauseOnAppPause == true && player.isPlaying) {
+                    resumeAfterAppPause.add(id)
+                    player.pause()
+                }
+            }
+        }
+        super.onMainPause()
+    }
+
+    override fun onMainResume() {
+        super.onMainResume()
+        runOnUiThread {
+            resumeAfterAppPause.toList().forEach { id -> exoPlayers[id]?.play() }
+            resumeAfterAppPause.clear()
+        }
     }
 
     // --- Helpers ---
@@ -640,6 +496,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     private fun buildPlayerConfig(id: Int, data: Dictionary, defaults: PlayerConfig? = null): PlayerConfig {
         val uriString = getString(data, "uri") ?: defaults?.uri?.toString()
             ?: throw IllegalArgumentException("Missing required config key: uri")
+        require(uriString.isNotBlank()) { "Media URI must not be blank" }
 
         return PlayerConfig(
             uri = Uri.parse(uriString),
@@ -648,10 +505,28 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             repeatMode = getInt(data, "repeatMode", defaults?.repeatMode ?: Player.REPEAT_MODE_OFF),
             playbackSpeed = getFloat(data, "playbackSpeed", defaults?.playbackSpeed ?: 1f).coerceAtLeast(0.1f),
             useCache = getBoolean(data, "useCache", defaults?.useCache ?: false),
+            cacheMaxBytes = getLong(data, "cacheMaxBytes", defaults?.cacheMaxBytes ?: DEFAULT_CACHE_MAX_BYTES)
+                .coerceAtLeast(MIN_CACHE_MAX_BYTES),
+            requestHeaders = if (data.containsKey("requestHeaders")) {
+                getStringMap(getDictionary(data, "requestHeaders"))
+            } else {
+                defaults?.requestHeaders ?: emptyMap()
+            },
+            userAgent = getString(data, "userAgent") ?: defaults?.userAgent,
+            allowCrossProtocolRedirects = getBoolean(
+                data,
+                "allowCrossProtocolRedirects",
+                defaults?.allowCrossProtocolRedirects ?: false
+            ),
+            pauseOnAppPause = getBoolean(data, "pauseOnAppPause", defaults?.pauseOnAppPause ?: true),
             parseProgramDateTime = getBoolean(data, "parseProgramDateTime", defaults?.parseProgramDateTime ?: false),
             debugLogging = getBoolean(data, "debugLogging", defaults?.debugLogging ?: false),
             routeAudioToGodot = getBoolean(data, "routeAudioToGodot", defaults?.routeAudioToGodot ?: false),
-            drm = getDictionary(data, "drm")?.let { buildDrmConfig(it) } ?: legacyDrmConfig(id) ?: defaults?.drm
+            drm = when {
+                getBoolean(data, "clearDrm", false) -> null
+                getDictionary(data, "drm") != null -> buildDrmConfig(getDictionary(data, "drm")!!)
+                else -> legacyDrmConfig(id) ?: defaults?.drm
+            }
         )
     }
 
@@ -693,17 +568,21 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
     private fun getDrmUuid(scheme: String): UUID? {
         return when (scheme.lowercase()) {
-            "widevine" -> Util.getDrmUuid("widevine")
-            else -> null
+            "widevine" -> C.WIDEVINE_UUID
+            "clearkey", "clear_key" -> C.CLEARKEY_UUID
+            "playready" -> C.PLAYREADY_UUID
+            else -> runCatching { UUID.fromString(scheme) }.getOrNull()
         }
     }
 
-    private fun getHttpDataSourceFactory(headers: Map<String, String> = emptyMap()): HttpDataSource.Factory {
-        val cookieManager = CookieManager()
-        cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ORIGINAL_SERVER)
-        CookieHandler.setDefault(cookieManager)
-
+    private fun getHttpDataSourceFactory(
+        headers: Map<String, String> = emptyMap(),
+        userAgent: String? = null,
+        allowCrossProtocolRedirects: Boolean = false
+    ): HttpDataSource.Factory {
         val factory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(allowCrossProtocolRedirects)
+        if (!userAgent.isNullOrBlank()) factory.setUserAgent(userAgent)
         if (headers.isNotEmpty()) {
             factory.setDefaultRequestProperties(headers)
         }
@@ -731,22 +610,33 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         return databaseProvider!!
     }
 
-    private fun getDownloadCache(context: Context): Cache {
+    private fun getDownloadCache(context: Context, requestedMaxBytes: Long): Cache {
+        if (downloadCache != null && cacheMaxBytes != requestedMaxBytes) {
+            Log.w(pluginName, "Cache is shared by all players; keeping active limit $cacheMaxBytes bytes")
+        }
         if (downloadCache == null) {
+            cacheMaxBytes = requestedMaxBytes
             val downloadContentDirectory = File(getDownloadDirectory(context), "downloads")
             downloadCache = SimpleCache(
                 downloadContentDirectory,
-                NoOpCacheEvictor(),
+                LeastRecentlyUsedCacheEvictor(cacheMaxBytes),
                 getDatabaseProvider(context)
             )
         }
         return downloadCache!!
     }
 
-    private fun buildDataSourceFactory(context: Context, useCache: Boolean): DataSource.Factory {
-        val upstreamFactory = DefaultDataSource.Factory(context, getHttpDataSourceFactory())
-        return if (useCache) {
-            buildReadOnlyCacheDataSource(upstreamFactory, getDownloadCache(context))
+    private fun buildDataSourceFactory(context: Context, config: PlayerConfig): DataSource.Factory {
+        val upstreamFactory = DefaultDataSource.Factory(
+            context,
+            getHttpDataSourceFactory(
+                config.requestHeaders,
+                config.userAgent,
+                config.allowCrossProtocolRedirects
+            )
+        )
+        return if (config.useCache) {
+            buildReadOnlyCacheDataSource(upstreamFactory, getDownloadCache(context, config.cacheMaxBytes))
         } else {
             upstreamFactory
         }
@@ -760,19 +650,33 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             .setDrmSessionManagerProvider(drmSessionManagerProvider)
     }
 
-    private fun parseProgramDateTime(id: Int, uri: Uri, dataSourceFactory: DataSource.Factory) {
-        try {
-            val dataSource = dataSourceFactory.createDataSource()
-            val inputStream = DataSourceInputStream(dataSource, DataSpec(uri))
-            val text = inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
-            programDateTimes[id] = Regex("""#EXT-X-PROGRAM-DATE-TIME:(.*)""")
-                .find(text)
-                ?.groupValues
-                ?.get(1)
-                ?: ""
-        } catch (e: Exception) {
-            Log.w(pluginName, "Could not parse program-date-time: ${e.message}")
-            programDateTimes[id] = ""
+    private fun parseProgramDateTimeAsync(id: Int, uri: Uri, dataSourceFactory: DataSource.Factory) {
+        ioExecutor.execute {
+            val value = try {
+                val dataSource = dataSourceFactory.createDataSource()
+                val inputStream = DataSourceInputStream(dataSource, DataSpec(uri))
+                val text = inputStream.use { stream ->
+                    val output = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8_192)
+                    var total = 0
+                    while (true) {
+                        val read = stream.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        if (total > MAX_MANIFEST_BYTES) {
+                            throw IllegalArgumentException("Manifest exceeds $MAX_MANIFEST_BYTES bytes")
+                        }
+                        output.write(buffer, 0, read)
+                    }
+                    output.toByteArray().toString(Charsets.UTF_8)
+                }
+                Regex("""(?m)^#EXT-X-PROGRAM-DATE-TIME:\s*(.+?)\s*$""")
+                    .find(text)?.groupValues?.get(1) ?: ""
+            } catch (e: Exception) {
+                Log.w(pluginName, "Could not parse program-date-time: ${e.message}")
+                ""
+            }
+            if (playerConfigurations[id]?.uri == uri) programDateTimes[id] = value
         }
     }
 
@@ -806,20 +710,26 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            emitSignal("on_player_error", id, error.message)
+            val details = error.message?.let { "${error.errorCodeName}: $it" } ?: error.errorCodeName
+            emitSignal("on_player_error", id, details)
+        }
+
+        override fun onCues(cueGroup: CueGroup) {
+            val cues = cueGroup.cues.mapNotNull { it.text?.toString() }.toTypedArray()
+            emitSignal("on_subtitle_cues", id, cues)
         }
     }
 
     private fun buildTrackList(
         id: Int,
         trackType: Int,
-        itemBuilder: (androidx.media3.common.Format, Int) -> Dictionary
+        itemBuilder: (androidx.media3.common.Format, Int, Boolean, Boolean) -> Dictionary
     ): ArrayList<Dictionary> {
         val tracks = ArrayList<Dictionary>()
         var index = 0
         exoPlayers[id]?.currentTracks?.groups?.filter { it.type == trackType }?.forEach { group ->
             (0 until group.length).forEach { i ->
-                tracks.add(itemBuilder(group.getTrackFormat(i), index))
+                tracks.add(itemBuilder(group.getTrackFormat(i), index, group.isTrackSelected(i), group.isTrackSupported(i)))
                 index++
             }
         }
@@ -878,6 +788,14 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         }
     }
 
+    private fun getLong(data: Dictionary, key: String, defaultValue: Long): Long {
+        return when (val value = data[key]) {
+            is Number -> value.toLong()
+            is String -> value.toLongOrNull() ?: defaultValue
+            else -> defaultValue
+        }
+    }
+
     private fun getStringMap(data: Dictionary?): Map<String, String> {
         if (data == null) return emptyMap()
         val result = mutableMapOf<String, String>()
@@ -890,14 +808,25 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     }
 
     private fun <T> runAndWaitUI(action: () -> T): T {
-        var result: T? = null
+        if (Looper.myLooper() == Looper.getMainLooper()) return action()
+
+        val result = AtomicReference<T>()
+        val failure = AtomicReference<Throwable>()
         val latch = CountDownLatch(1)
         runOnUiThread {
-            result = action()
-            latch.countDown()
+            try {
+                result.set(action())
+            } catch (error: Throwable) {
+                failure.set(error)
+            } finally {
+                latch.countDown()
+            }
         }
-        latch.await()
-        return result!!
+        if (!latch.await(UI_QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            throw IllegalStateException("Timed out waiting for Android UI thread")
+        }
+        failure.get()?.let { throw it }
+        return result.get()
     }
 
     private fun emitAndLogError(id: Int, msg: String) {
@@ -927,5 +856,22 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             }
         }
         Log.v(pluginName, debugInfo)
+    }
+
+    private fun updateGlobalLogLevel() {
+        ExoLogger.setLogLevel(
+            if (playerConfigurations.values.any { it.debugLogging }) {
+                ExoLogger.LOG_LEVEL_ALL
+            } else {
+                ExoLogger.LOG_LEVEL_WARNING
+            }
+        )
+    }
+
+    private companion object {
+        const val DEFAULT_CACHE_MAX_BYTES = 256L * 1024L * 1024L
+        const val MIN_CACHE_MAX_BYTES = 8L * 1024L * 1024L
+        const val MAX_MANIFEST_BYTES = 2 * 1024 * 1024
+        const val UI_QUERY_TIMEOUT_SECONDS = 5L
     }
 }

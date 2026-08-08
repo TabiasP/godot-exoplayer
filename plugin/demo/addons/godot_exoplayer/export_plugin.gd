@@ -29,7 +29,6 @@ func _disable_plugin():
 	remove_autoload_singleton(AUTOLOAD_NAME)
 
 class AndroidExportPlugin extends EditorExportPlugin:
-	# TODO: Update to your plugin's name.
 	var _plugin_name = "godot_exoplayer"
 
 	func _supports_platform(platform):
@@ -44,11 +43,10 @@ class AndroidExportPlugin extends EditorExportPlugin:
 			return PackedStringArray([_plugin_name + "/bin/release/" + _plugin_name + "-release.aar"])
 
 	func _get_android_dependencies(platform, debug):
-		# TODO: Add remote dependices here.
 		if debug:
-			return PackedStringArray(["androidx.media3:media3-exoplayer:1.6.1","androidx.media3:media3-exoplayer-dash:1.6.1","androidx.media3:media3-ui:1.6.1","androidx.media3:media3-exoplayer-hls:1.6.1"])
+			return PackedStringArray(["androidx.media3:media3-exoplayer:1.6.1","androidx.media3:media3-exoplayer-dash:1.6.1","androidx.media3:media3-exoplayer-hls:1.6.1"])
 		else:
-			return PackedStringArray(["androidx.media3:media3-exoplayer:1.6.1","androidx.media3:media3-exoplayer-dash:1.6.1","androidx.media3:media3-ui:1.6.1","androidx.media3:media3-exoplayer-hls:1.6.1"])
+			return PackedStringArray(["androidx.media3:media3-exoplayer:1.6.1","androidx.media3:media3-exoplayer-dash:1.6.1","androidx.media3:media3-exoplayer-hls:1.6.1"])
 
 	func _get_name():
 		return _plugin_name
