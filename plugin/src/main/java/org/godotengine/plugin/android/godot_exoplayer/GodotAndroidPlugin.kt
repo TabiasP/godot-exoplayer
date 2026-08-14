@@ -119,7 +119,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
                 parseProgramDateTimeAsync(id, playerConfig.uri, dataSourceFactory)
             }
 
-            Log.v(pluginName, "ExoPlayer($id) created with media: ${playerConfig.uri}")
+            Log.v(pluginName, "ExoPlayer($id) created with media: ${MediaUrlLog.redact(playerConfig.uri.toString())}")
         } catch (e: Exception) {
             emitAndLogError(id, "Error creating ExoPlayer($id): ${e.message}")
         }
@@ -229,7 +229,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
                 player.play()
             }
 
-            Log.v(pluginName, "ExoPlayer($id) media changed to: ${playerConfig.uri}")
+            Log.v(pluginName, "ExoPlayer($id) media changed to: ${MediaUrlLog.redact(playerConfig.uri.toString())}")
         } catch (e: Exception) {
             emitAndLogError(id, "Error changing ExoPlayer($id) media: ${e.message}")
         }
