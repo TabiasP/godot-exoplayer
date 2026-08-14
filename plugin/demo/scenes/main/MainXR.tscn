@@ -1,10 +1,12 @@
-[gd_scene load_steps=12 format=3 uid="uid://dbqrwjkpwj1rn"]
+[gd_scene format=3 uid="uid://dbqrwjkpwj1rn"]
 
 [ext_resource type="Script" uid="uid://d3t2svyp1740u" path="res://scenes/main/main_xr.gd" id="1_j6ddo"]
 [ext_resource type="PackedScene" uid="uid://c7t0qooxsi3vb" path="res://scenes/xr_player/xr_player.tscn" id="2_be6s4"]
 [ext_resource type="PackedScene" uid="uid://clujaf3u776a3" path="res://addons/godot-xr-tools/objects/viewport_2d_in_3d.tscn" id="3_cbtg8"]
 [ext_resource type="PackedScene" uid="uid://dacutnkwxu6d7" path="res://scenes/UI/videocontrolui.tscn" id="4_t3k56"]
 [ext_resource type="PackedScene" uid="uid://dl1ik8q2vaqe2" path="res://scenes/UI/test/test_panel.tscn" id="5_0f7ma"]
+[ext_resource type="Script" uid="uid://b5bto54rt4qy2" path="res://addons/godot_exoplayer/ExoPlayerCompositionLayer.gd" id="5_hxnew"]
+[ext_resource type="PackedScene" uid="uid://cbpq7y8v7b8v1" path="res://scenes/UI/test/audio_sink_tester.tscn" id="7_onh2r"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_l5qah"]
 sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
@@ -28,27 +30,26 @@ albedo_color = Color(0.174985, 0.174985, 0.174985, 1)
 material = SubResource("StandardMaterial3D_l5qah")
 size = Vector3(10, 0.1, 10)
 
-[node name="MainXR" type="Node3D"]
+[node name="MainXR" type="Node3D" unique_id=1445461528]
 script = ExtResource("1_j6ddo")
-video_uri = "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd"
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=658774402]
 environment = SubResource("Environment_lkshg")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=921369820]
 transform = Transform3D(-0.866023, -0.433016, 0.250001, 0, 0.499998, 0.866027, -0.500003, 0.749999, -0.43301, 0, 0, 0)
 shadow_enabled = true
 
-[node name="Floor" type="StaticBody3D" parent="."]
+[node name="Floor" type="StaticBody3D" parent="." unique_id=1838697872]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.0315933, 0)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor" unique_id=1760734497]
 shape = SubResource("BoxShape3D_l5qah")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor"]
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor" unique_id=1790147802]
 mesh = SubResource("BoxMesh_bdica")
 
-[node name="Viewport2Din3D" parent="." instance=ExtResource("3_cbtg8")]
+[node name="Viewport2Din3D" parent="." unique_id=14656780 instance=ExtResource("3_cbtg8")]
 transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, 1.19652, 1.12225, 0)
 screen_size = Vector2(1.6, 0.9)
 scene = ExtResource("5_0f7ma")
@@ -56,30 +57,45 @@ viewport_size = Vector2(700, 300)
 transparent = 0
 scene_properties_keys = PackedStringArray("test_panel.gd")
 
-[node name="XROrigin3D" parent="." instance=ExtResource("2_be6s4")]
+[node name="XROrigin3D" parent="." unique_id=525431301 instance=ExtResource("2_be6s4")]
 
-[node name="BoneAttachment3D" parent="XROrigin3D/LeftTrackedHand/LeftHandHumanoid2/LeftHandHumanoid/Skeleton3D" index="2"]
-transform = Transform3D(0.0148923, 0.3927, 0.919546, -0.993092, 0.112853, -0.0321113, -0.116383, -0.912716, 0.391668, -0.0111001, 0.0429431, -0.171614)
-
-[node name="BoneAttachment3D" parent="XROrigin3D/RightTrackedHand/RightHandHumanoid2/RightHandHumanoid/Skeleton3D" index="2"]
-transform = Transform3D(0.0190384, -0.392689, -0.919474, 0.993227, 0.112853, -0.0276318, 0.114616, -0.912721, 0.392177, 0.0111, 0.042943, -0.171613)
-
-[node name="CompLayer" type="OpenXRCompositionLayerQuad" parent="XROrigin3D"]
+[node name="ExoPlayerCompositionLayer" type="OpenXRCompositionLayerQuad" parent="XROrigin3D" unique_id=1775423030]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.04548, -0.922102)
 use_android_surface = true
 android_surface_size = Vector2i(1920, 1080)
-sort_order = -1
-enable_hole_punch = true
+XR_FB_composition_layer_secure_content/external_output = 1
+XR_FB_composition_layer_depth_test/enable = true
 XR_FB_composition_layer_image_layout/vertical_flip = true
 quad_size = Vector2(1.6, 0.9)
+script = ExtResource("5_hxnew")
+video_uri = "https://www2.iis.fraunhofer.de/AAC/ChID-BLITS-EBU.mp4"
+route_audio_to_godot = true
+godot_audio_player_path = NodePath("AudioStreamPlayer3D_Left")
+godot_audio_players = Array[NodePath]([NodePath("AudioStreamPlayer3D_Left"), NodePath("AudioStreamPlayer3D_Right")])
+spatial_audio_mode = 1
+godot_audio_buffer_length = 0.1
 
-[node name="VideoControls2DIn3D" parent="XROrigin3D/CompLayer" instance=ExtResource("3_cbtg8")]
+[node name="VideoControls2DIn3D" parent="XROrigin3D/ExoPlayerCompositionLayer" unique_id=222236805 instance=ExtResource("3_cbtg8")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.113051, 0.00299996)
 screen_size = Vector2(1.6, 0.9)
 collision_layer = 5242880
 scene = ExtResource("4_t3k56")
 viewport_size = Vector2(800, 450)
 scene_properties_keys = PackedStringArray("videocontrolui.gd")
+
+[node name="AudioStreamPlayer3D_Left" type="AudioStreamPlayer3D" parent="XROrigin3D/ExoPlayerCompositionLayer" unique_id=1392221036]
+transform = Transform3D(0.9961752, -0.08737837, 0, 0.08737837, 0.9961752, 0, 0, 0, 1, -0.77019596, 0, 0)
+
+[node name="AudioStreamPlayer3D_Right" type="AudioStreamPlayer3D" parent="XROrigin3D/ExoPlayerCompositionLayer" unique_id=1392221037]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8129412, -0.075128675, -0.018676996)
+volume_db = 10.0
+
+[node name="Viewport2Din3D2" parent="." unique_id=852544942 instance=ExtResource("3_cbtg8")]
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, -0.4848099, 0.7500644, -0.051942647)
+screen_size = Vector2(0.75, 0.5)
+scene = ExtResource("7_onh2r")
+viewport_size = Vector2(960, 540)
+scene_properties_keys = PackedStringArray("audio_sink_tester.gd")
 
 [editable path="XROrigin3D"]
 [editable path="XROrigin3D/LeftTrackedHand/LeftHandHumanoid2"]

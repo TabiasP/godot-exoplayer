@@ -3,8 +3,12 @@ extends Node3D
 
 @export var passthrough : bool = false
 @export var video_uri : String = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+@export var license_uri : String = ""
+
+@export var additionalHeaders : Dictionary[String, String]
 
 @onready var environment : Environment = $WorldEnvironment.environment
+@onready var exo_player_composition_layer: ExoPlayerCompositionLayer = $XROrigin3D/ExoPlayerCompositionLayer
 
 var viewport : Viewport
 var xr_interface: XRInterface
@@ -26,11 +30,10 @@ func _ready() -> void:
 	else:
 		print("OpenXR not initialized!")
 	
+	exo_player_composition_layer.video_end.connect(_on_video_end)
 	
-	ExoPlayer.connect("player_ready",_on_player_ready)
-	ExoPlayer.connect("video_end",_on_video_end)
-	await get_tree().create_timer(2).timeout
-	create_android_surface()
+	await get_tree().create_timer(5).timeout
+	
 	### play (id of player)
 	#_android_plugin.play(1)
 	
@@ -55,22 +58,9 @@ func enable_passthrough():
 	return true
 
 
-func create_android_surface():
-	if ExoPlayer._android_plugin:
-		## getting the android surface from the composition layer quad
-		var android_surface = $XROrigin3D/CompLayer.get_android_surface()
-		if android_surface:
-			##create exoplayer using android plugin function
-			## if player_id = 0 -> failed to instantiate
-			player_id = ExoPlayer.create_exoplayer_instance(android_surface, video_uri)
-			##call setup video controls function ont the viewport2din3D videocontrolui
-			## we need to pass the exoplayer id
-			if player_id > 0:
-				pass
-
 func _on_player_ready(id: int, duration:int):
 	if id == player_id:
-		$XROrigin3D/CompLayer/VideoControls2DIn3D.scene_node.setup_video_controls(player_id,duration) 
+		$XROrigin3D/ExoPlayerCompositionLayer/VideoControls2DIn3D.scene_node.setup_video_controls(player_id,duration) 
 		
 		## here we also could do ExoPlayer.play(player_id) if we want autoplay
 

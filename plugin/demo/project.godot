@@ -8,17 +8,21 @@
 
 config_version=5
 
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
 [application]
 
 config/name="Android Plugin Demo"
 run/main_scene="uid://dbqrwjkpwj1rn"
-config/features=PackedStringArray("4.4", "GL Compatibility")
+config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
 
 [autoload]
 
-XRToolsUserSettings="*res://addons/godot-xr-tools/user_settings/user_settings.gd"
-XRToolsRumbleManager="*res://addons/godot-xr-tools/rumble/rumble_manager.gd"
+XRToolsUserSettings="*uid://df03cppciqr60"
+XRToolsRumbleManager="*uid://bvrxci2j8lbl6"
 ExoPlayer="*res://addons/godot_exoplayer/ExoPlayer.gd"
 
 [debug]

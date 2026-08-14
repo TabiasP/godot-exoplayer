@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3 uid="uid://dacutnkwxu6d7"]
+[gd_scene format=3 uid="uid://dacutnkwxu6d7"]
 
 [ext_resource type="Script" uid="uid://bqtm4e5x4may7" path="res://scenes/UI/videocontrolui.gd" id="1_o00lp"]
 
@@ -11,7 +11,7 @@
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_o00lp"]
 bg_color = Color(1, 0, 0, 1)
 
-[node name="VideoControlUI" type="Control"]
+[node name="VideoControlUI" type="Control" unique_id=2117225104]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -20,7 +20,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_o00lp")
 
-[node name="Background" type="ColorRect" parent="."]
+[node name="Background" type="ColorRect" parent="." unique_id=1887603466]
 layout_mode = 1
 anchors_preset = 12
 anchor_top = 1.0
@@ -31,7 +31,7 @@ grow_horizontal = 2
 grow_vertical = 0
 color = Color(1, 1, 1, 0.411765)
 
-[node name="VBoxContainer" type="VBoxContainer" parent="."]
+[node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=854341758]
 layout_mode = 1
 anchors_preset = 12
 anchor_top = 1.0
@@ -41,70 +41,70 @@ offset_top = -51.0
 grow_horizontal = 2
 grow_vertical = 0
 
-[node name="HBoxContainer2" type="HBoxContainer" parent="VBoxContainer"]
+[node name="HBoxContainer2" type="HBoxContainer" parent="VBoxContainer" unique_id=2075524103]
 layout_mode = 2
 
-[node name="VSeparator2" type="VSeparator" parent="VBoxContainer/HBoxContainer2"]
+[node name="VSeparator2" type="VSeparator" parent="VBoxContainer/HBoxContainer2" unique_id=1761247484]
 layout_mode = 2
 theme_override_constants/separation = 10
 theme_override_styles/separator = SubResource("StyleBoxEmpty_xq4ey")
 
-[node name="Timeline" type="HSlider" parent="VBoxContainer/HBoxContainer2"]
+[node name="Timeline" type="HSlider" parent="VBoxContainer/HBoxContainer2" unique_id=1733283721]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 4
 
-[node name="TimelineTimer" type="Timer" parent="VBoxContainer/HBoxContainer2/Timeline"]
+[node name="TimelineTimer" type="Timer" parent="VBoxContainer/HBoxContainer2/Timeline" unique_id=1321797212]
 
-[node name="VSeparator" type="VSeparator" parent="VBoxContainer/HBoxContainer2"]
+[node name="VSeparator" type="VSeparator" parent="VBoxContainer/HBoxContainer2" unique_id=1377295924]
 layout_mode = 2
 theme_override_constants/separation = 10
 theme_override_styles/separator = SubResource("StyleBoxEmpty_o00lp")
 
-[node name="MarginContainer" type="MarginContainer" parent="VBoxContainer"]
+[node name="MarginContainer" type="MarginContainer" parent="VBoxContainer" unique_id=1019205675]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/margin_left = 10
 theme_override_constants/margin_right = 10
 theme_override_constants/margin_bottom = 3
 
-[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer/MarginContainer"]
+[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer/MarginContainer" unique_id=2135307529]
 custom_minimum_size = Vector2(0, 30)
 layout_mode = 2
 size_flags_horizontal = 0
 
-[node name="PlayPauseButton" type="Button" parent="VBoxContainer/MarginContainer/HBoxContainer"]
+[node name="PlayPauseButton" type="Button" parent="VBoxContainer/MarginContainer/HBoxContainer" unique_id=401495176]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Play"
 
-[node name="VSeparator" type="VSeparator" parent="VBoxContainer/MarginContainer/HBoxContainer"]
+[node name="VSeparator" type="VSeparator" parent="VBoxContainer/MarginContainer/HBoxContainer" unique_id=2122019974]
 layout_mode = 2
 theme_override_constants/separation = 50
 theme_override_styles/separator = SubResource("StyleBoxEmpty_nalb1")
 
-[node name="MinusTenButton" type="Button" parent="VBoxContainer/MarginContainer/HBoxContainer"]
+[node name="MinusTenButton" type="Button" parent="VBoxContainer/MarginContainer/HBoxContainer" unique_id=902622825]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "-10s"
 
-[node name="PlusTenButton" type="Button" parent="VBoxContainer/MarginContainer/HBoxContainer"]
+[node name="PlusTenButton" type="Button" parent="VBoxContainer/MarginContainer/HBoxContainer" unique_id=118269376]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "+10s"
 
-[node name="ErrorLabel" type="Label" parent="VBoxContainer/MarginContainer/HBoxContainer"]
+[node name="ErrorLabel" type="Label" parent="VBoxContainer/MarginContainer/HBoxContainer" unique_id=900024975]
 layout_mode = 2
 
-[node name="HBoxContainer2" type="HBoxContainer" parent="VBoxContainer/MarginContainer"]
+[node name="HBoxContainer2" type="HBoxContainer" parent="VBoxContainer/MarginContainer" unique_id=711187809]
 layout_mode = 2
 size_flags_horizontal = 8
 
-[node name="ResOptionButton" type="OptionButton" parent="VBoxContainer/MarginContainer/HBoxContainer2"]
+[node name="ResOptionButton" type="OptionButton" parent="VBoxContainer/MarginContainer/HBoxContainer2" unique_id=620072964]
 visible = false
 layout_mode = 2
 
-[node name="MuteButton" type="Button" parent="VBoxContainer/MarginContainer/HBoxContainer2"]
+[node name="MuteButton" type="Button" parent="VBoxContainer/MarginContainer/HBoxContainer2" unique_id=1627194274]
 layout_mode = 2
 size_flags_horizontal = 6
 size_flags_vertical = 4
@@ -112,12 +112,12 @@ theme_override_styles/pressed = SubResource("StyleBoxFlat_o00lp")
 toggle_mode = true
 text = "Mute"
 
-[node name="VSeparator" type="VSeparator" parent="VBoxContainer/MarginContainer/HBoxContainer2"]
+[node name="VSeparator" type="VSeparator" parent="VBoxContainer/MarginContainer/HBoxContainer2" unique_id=2067211862]
 layout_mode = 2
 theme_override_constants/separation = 10
 theme_override_styles/separator = SubResource("StyleBoxEmpty_o00lp")
 
-[node name="VolumeSlider" type="HSlider" parent="VBoxContainer/MarginContainer/HBoxContainer2"]
+[node name="VolumeSlider" type="HSlider" parent="VBoxContainer/MarginContainer/HBoxContainer2" unique_id=1392869311]
 custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
 size_flags_horizontal = 4

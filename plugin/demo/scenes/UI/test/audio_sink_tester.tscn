@@ -1,0 +1,258 @@
+[gd_scene format=3 uid="uid://cbpq7y8v7b8v1"]
+
+[ext_resource type="Script" uid="uid://c7epvtmcuc6ie" path="res://scenes/UI/test/audio_sink_tester.gd" id="1_tester"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_bg"]
+bg_color = Color(0.08, 0.1, 0.12, 0.95)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.18, 0.22, 0.28, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0, 0, 0.3)
+shadow_size = 8
+
+[node name="AudioSinkTester" type="Control" unique_id=1952604400]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_tester")
+
+[node name="PanelContainer" type="PanelContainer" parent="." unique_id=1234951505]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_bg")
+
+[node name="MarginContainer" type="MarginContainer" parent="PanelContainer" unique_id=187913004]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 20
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer/MarginContainer" unique_id=1975416802]
+layout_mode = 2
+theme_override_constants/separation = 15
+
+[node name="Header" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer" unique_id=736097031]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="StatusIndicator" type="ColorRect" parent="PanelContainer/MarginContainer/VBoxContainer/Header" unique_id=1350086643]
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+size_flags_vertical = 4
+color = Color(0.5, 0.5, 0.5, 1)
+
+[node name="StatusText" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Header" unique_id=591864933]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.85, 0.9, 1)
+theme_override_font_sizes/font_size = 14
+text = "STANDBY"
+
+[node name="VSeparator" type="VSeparator" parent="PanelContainer/MarginContainer/VBoxContainer/Header" unique_id=1467648804]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Header" unique_id=1607625554]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 20
+text = "Audio Sink Diagnostic Console"
+horizontal_alignment = 2
+
+[node name="HSeparator" type="HSeparator" parent="PanelContainer/MarginContainer/VBoxContainer" unique_id=579619555]
+layout_mode = 2
+
+[node name="Content" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer" unique_id=1560704096]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 20
+
+[node name="ControlPanel" type="PanelContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content" unique_id=1221600740]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel" unique_id=176487314]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ModeTitle" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer" unique_id=436663598]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 14
+text = "TEST MODE"
+
+[node name="ModeSelector" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer" unique_id=1357009570]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="WaveformTitle" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer" unique_id=1938462214]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 14
+text = "WAVEFORM TYPE"
+
+[node name="WaveformSelector" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer" unique_id=115543132]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="FreqLabel" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer" unique_id=1404330287]
+layout_mode = 2
+
+[node name="FreqTitle" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer/FreqLabel" unique_id=52954034]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 14
+text = "FREQUENCY"
+
+[node name="FreqValue" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer/FreqLabel" unique_id=1265069066]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "440 Hz"
+
+[node name="FreqSlider" type="HSlider" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer" unique_id=1089471387]
+layout_mode = 2
+min_value = 100.0
+max_value = 2000.0
+value = 440.0
+
+[node name="VolumeLabel" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer" unique_id=786741736]
+layout_mode = 2
+
+[node name="VolumeTitle" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer/VolumeLabel" unique_id=240378261]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 14
+text = "VOLUME"
+
+[node name="VolumeValue" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer/VolumeLabel" unique_id=366592113]
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "50%"
+
+[node name="VolumeSlider" type="HSlider" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer" unique_id=1307220745]
+layout_mode = 2
+max_value = 1.0
+step = 0.01
+value = 0.5
+
+[node name="PlaybackControls" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer" unique_id=2012586771]
+layout_mode = 2
+size_flags_vertical = 10
+theme_override_constants/separation = 10
+
+[node name="StartButton" type="Button" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer/PlaybackControls" unique_id=1410002738]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 14
+text = "START"
+
+[node name="StopButton" type="Button" parent="PanelContainer/MarginContainer/VBoxContainer/Content/ControlPanel/VBoxContainer/PlaybackControls" unique_id=1031267624]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 14
+text = "STOP"
+
+[node name="DiagnosticPanel" type="PanelContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content" unique_id=1541396414]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content/DiagnosticPanel" unique_id=563657171]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DiagTitle" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/DiagnosticPanel/VBoxContainer" unique_id=662665945]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 14
+text = "SINK STATUS"
+
+[node name="MixRateLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/DiagnosticPanel/VBoxContainer" unique_id=212396194]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.55, 0.6, 1)
+theme_override_font_sizes/font_size = 13
+text = "Mix Rate:"
+
+[node name="MixRateValue" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/DiagnosticPanel/VBoxContainer" unique_id=631631628]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.9, 0.95, 1)
+theme_override_font_sizes/font_size = 15
+text = "48000 Hz"
+
+[node name="PlaybackActiveLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/DiagnosticPanel/VBoxContainer" unique_id=2035080425]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.55, 0.6, 1)
+theme_override_font_sizes/font_size = 13
+text = "Playback State:"
+
+[node name="PlaybackActiveValue" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/DiagnosticPanel/VBoxContainer" unique_id=219125640]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.9, 0.95, 1)
+theme_override_font_sizes/font_size = 15
+text = "Inactive"
+
+[node name="FramesPushedLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/DiagnosticPanel/VBoxContainer" unique_id=2134041554]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.55, 0.6, 1)
+theme_override_font_sizes/font_size = 13
+text = "Frames Pushed:"
+
+[node name="FramesPushedValue" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/DiagnosticPanel/VBoxContainer" unique_id=633092622]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.9, 0.95, 1)
+theme_override_font_sizes/font_size = 15
+text = "0"
+
+[node name="VisualizerPanel" type="PanelContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content" unique_id=796712064]
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer/Content/VisualizerPanel" unique_id=595601551]
+layout_mode = 2
+
+[node name="VisualizerLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Content/VisualizerPanel/VBoxContainer" unique_id=301890135]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 14
+text = "OSCILLOSCOPE WAVEFORM"
+
+[node name="Visualizer" type="Control" parent="PanelContainer/MarginContainer/VBoxContainer/Content/VisualizerPanel" unique_id=276235444]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Footer" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer" unique_id=1252443174]
+custom_minimum_size = Vector2(0, 140)
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="ConsoleLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/Footer" unique_id=1525868447]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 14
+text = "DIAGNOSTIC LOG"
+
+[node name="LogConsole" type="TextEdit" parent="PanelContainer/MarginContainer/VBoxContainer/Footer" unique_id=1468274355]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_colors/font_color = Color(0.85, 0.9, 0.95, 1)
+theme_override_colors/font_readonly_color = Color(0.85, 0.9, 0.95, 1)
+theme_override_font_sizes/font_size = 12
+editable = false
+wrap_mode = 1
