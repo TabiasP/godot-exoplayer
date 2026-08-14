@@ -6,6 +6,7 @@ signal player_error(id: int, error_message: String)
 signal video_end(id: int)
 signal player_state_changed(id: int, state: int)
 signal subtitle_cues(id: int, cues: PackedStringArray)
+signal audio_resynced(id: int, queued_frames: int)
 
 
 var _plugin_name = "godot_exoplayer"
@@ -20,6 +21,8 @@ var _managed_audio_players : Dictionary = {}
 const DEFAULT_GODOT_AUDIO_BUFFER_LENGTH := 0.5
 const DEFAULT_GODOT_AUDIO_MIX_RATE := 48000
 const GODOT_AUDIO_POLL_FRAMES := 2048
+const AUDIO_RESYNC_THRESHOLD_FRAMES := 90_000
+const AUDIO_RESYNC_STRIKES := 90
 const STATE_IDLE := 1
 const STATE_BUFFERING := 2
 const STATE_READY := 3
@@ -63,7 +66,8 @@ func create_player(android_surface, video_uri: String, options: Dictionary = {})
 			"godot_audio_sample_rate": 0,
 			"godot_audio_buffer_length": float(config.get("godotAudioBufferLength", DEFAULT_GODOT_AUDIO_BUFFER_LENGTH)),
 			"logical_volume": float(config.get("volume", 1.0)),
-			"spatial_audio_mode": int(config.get("spatialAudioMode", 0))
+			"spatial_audio_mode": int(config.get("spatialAudioMode", 0)),
+			"audio_resync_strikes": 0
 		}
 
 		if players[new_id].route_audio_to_godot:
@@ -393,6 +397,7 @@ func _pump_godot_audio(id: int) -> void:
 		return
 
 	_update_godot_audio_format(id)
+	_audio_resync_guard(id)
 
 	var playbacks_list = players[id].godot_audio_playbacks
 	for i in range(players_list.size()):
@@ -532,6 +537,20 @@ func _clear_godot_audio_buffer(id: int) -> void:
 			playbacks_list[i] = p.get_stream_playback()
 	if playbacks_list.size() > 0:
 		players[id].godot_audio_playback = playbacks_list[0]
+
+static func _next_audio_resync_strike(queued_frames: int, strikes: int, threshold: int) -> int:
+	return strikes + 1 if queued_frames >= threshold else 0
+
+func _audio_resync_guard(id: int) -> void:
+	if not _android_plugin or not players.has(id):
+		return
+	var queued := int((_android_plugin.getAudioFormat(id) as Dictionary).get("queuedFrames", 0))
+	var strikes := _next_audio_resync_strike(queued, int(players[id].get("audio_resync_strikes", 0)), AUDIO_RESYNC_THRESHOLD_FRAMES)
+	players[id]["audio_resync_strikes"] = strikes
+	if strikes >= AUDIO_RESYNC_STRIKES:
+		_clear_godot_audio_buffer(id)
+		players[id]["audio_resync_strikes"] = 0
+		emit_signal("audio_resynced", id, queued)
 
 func _apply_godot_audio_volume(id: int) -> void:
 	if not players.has(id) or not players[id].route_audio_to_godot:
