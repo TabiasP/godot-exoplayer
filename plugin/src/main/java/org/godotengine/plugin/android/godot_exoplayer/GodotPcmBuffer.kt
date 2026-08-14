@@ -1,6 +1,8 @@
 package org.godotengine.plugin.android.godot_exoplayer
 
+import android.media.AudioFormat
 import androidx.media3.common.C
+import androidx.media3.common.util.Util
 import org.godotengine.godot.Dictionary
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -37,23 +39,11 @@ internal class GodotPcmBuffer {
         val source = buffer.slice().order(ByteOrder.LITTLE_ENDIAN)
         val frameCount = source.remaining() / (bytesPerSample * channelCount)
         for (frame in 0 until frameCount) {
-            var left = 0f
-            var right = 0f
+            val input = FloatArray(channelCount)
             for (channel in 0 until channelCount) {
-                val sample = readSample(source, encoding)
-                when (channel) {
-                    0 -> {
-                        left = sample
-                        right = sample
-                    }
-                    1 -> right = sample
-                    else -> {
-                        val surroundGain = 0.5f / (channelCount - 2)
-                        left += sample * surroundGain
-                        right += sample * surroundGain
-                    }
-                }
+                input[channel] = readSample(source, encoding)
             }
+            val stereo = downmixFrame(input, Util.getAudioTrackChannelConfig(channelCount))
 
             if (queuedFrames == MAX_QUEUED_FRAMES) {
                 readFrame = (readFrame + 1) % MAX_QUEUED_FRAMES
@@ -61,8 +51,8 @@ internal class GodotPcmBuffer {
                 droppedFrames++
             }
             val outputIndex = writeFrame * OUTPUT_CHANNELS
-            samples[outputIndex] = left.coerceIn(-1f, 1f)
-            samples[outputIndex + 1] = right.coerceIn(-1f, 1f)
+            samples[outputIndex] = stereo[0]
+            samples[outputIndex + 1] = stereo[1]
             writeFrame = (writeFrame + 1) % MAX_QUEUED_FRAMES
             queuedFrames++
         }
@@ -129,8 +119,35 @@ internal class GodotPcmBuffer {
         else -> 0f
     }
 
-    private companion object {
+    internal companion object {
         const val OUTPUT_CHANNELS = 2
         const val MAX_QUEUED_FRAMES = 96_000
+        private const val DOWNMIX_GAIN = 0.70710678f
+
+        internal fun downmixFrame(input: FloatArray, channelMask: Int): FloatArray {
+            if (input.size == 1) {
+                return floatArrayOf(input[0], input[0])
+            }
+
+            var left = 0f
+            var right = 0f
+            var remainingMask = channelMask
+            for (sample in input) {
+                if (remainingMask == 0) break
+                val role = Integer.lowestOneBit(remainingMask)
+                remainingMask = remainingMask and (remainingMask - 1)
+                when (role) {
+                    AudioFormat.CHANNEL_OUT_FRONT_LEFT -> left += sample
+                    AudioFormat.CHANNEL_OUT_FRONT_RIGHT -> right += sample
+                    AudioFormat.CHANNEL_OUT_FRONT_CENTER -> {
+                        left += sample * DOWNMIX_GAIN
+                        right += sample * DOWNMIX_GAIN
+                    }
+                    AudioFormat.CHANNEL_OUT_SIDE_LEFT, AudioFormat.CHANNEL_OUT_BACK_LEFT -> left += sample * DOWNMIX_GAIN
+                    AudioFormat.CHANNEL_OUT_SIDE_RIGHT, AudioFormat.CHANNEL_OUT_BACK_RIGHT -> right += sample * DOWNMIX_GAIN
+                }
+            }
+            return floatArrayOf(left.coerceIn(-1f, 1f), right.coerceIn(-1f, 1f))
+        }
     }
 }
