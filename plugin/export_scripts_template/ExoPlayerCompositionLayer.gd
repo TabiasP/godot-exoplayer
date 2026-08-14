@@ -12,6 +12,7 @@ signal subtitle_cues(id: int, cues: PackedStringArray)
 @export_group("ExoPlayer")
 @export var video_uri: String = ""
 @export var source_config: ExoPlayerSourceConfig
+@export var buffer_config: ExoPlayerBufferConfig
 @export var create_on_ready: bool = true
 @export var creation_delay: float = 0.0
 @export_range(0.1, 30.0, 0.1, "suffix:s") var surface_wait_timeout: float = 5.0
@@ -187,6 +188,8 @@ func _build_options() -> Dictionary:
 	}
 	if source_config != null:
 		options.merge(source_config.to_options(), true)
+	if buffer_config != null:
+		options.merge(buffer_config.to_options(), true)
 	if audio_config != null:
 		options.merge(audio_config.to_options(), true)
 	if drm_config != null:

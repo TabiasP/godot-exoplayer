@@ -28,6 +28,7 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManagerProvider
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
@@ -87,6 +88,12 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
 
             val playerBuilder = ExoPlayer.Builder(context)
                 .setMediaSourceFactory(buildMediaSourceFactory(context, dataSourceFactory))
+            playerConfig.bufferDurations?.let { durations ->
+                playerBuilder.setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(
+                    durations.minBufferMs, durations.maxBufferMs,
+                    durations.bufferForPlaybackMs, durations.bufferForPlaybackAfterRebufferMs
+                ).build())
+            }
             if (playerConfig.routeAudioToGodot) {
                 playerBuilder.setRenderersFactory(
                     GodotAudioRenderersFactory(context, audioBuffers.getOrPut(id) { GodotPcmBuffer() })
@@ -522,6 +529,14 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             parseProgramDateTime = getBoolean(data, "parseProgramDateTime", defaults?.parseProgramDateTime ?: false),
             debugLogging = getBoolean(data, "debugLogging", defaults?.debugLogging ?: false),
             routeAudioToGodot = getBoolean(data, "routeAudioToGodot", defaults?.routeAudioToGodot ?: false),
+            bufferDurations = if (data.containsKey("bufferDurations")) {
+                val bufferData = getDictionary(data, "bufferDurations")
+                    ?: throw IllegalArgumentException("bufferDurations must be a dictionary")
+                BufferDurations.fromValues(
+                    getInt(bufferData, "minBufferMs", -1), getInt(bufferData, "maxBufferMs", -1),
+                    getInt(bufferData, "bufferForPlaybackMs", -1), getInt(bufferData, "bufferForPlaybackAfterRebufferMs", -1)
+                )
+            } else defaults?.bufferDurations,
             drm = when {
                 getBoolean(data, "clearDrm", false) -> null
                 getDictionary(data, "drm") != null -> buildDrmConfig(getDictionary(data, "drm")!!)
