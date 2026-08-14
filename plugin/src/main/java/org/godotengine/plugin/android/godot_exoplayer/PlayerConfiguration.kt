@@ -19,6 +19,7 @@ internal data class PlayerConfig(
     val debugLogging: Boolean,
     val routeAudioToGodot: Boolean,
     val bufferDurations: BufferDurations?,
+    val observedUrlPattern: ObservedUrlPattern?,
     val drm: DrmConfig?
 )
 

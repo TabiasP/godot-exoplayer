@@ -57,7 +57,8 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         SignalInfo("on_video_end", Integer::class.java),
         SignalInfo("on_player_error", Integer::class.java, String::class.java),
         SignalInfo("on_player_state_changed", Integer::class.java, Integer::class.java),
-        SignalInfo("on_subtitle_cues", Integer::class.java, Array<String>::class.java)
+        SignalInfo("on_subtitle_cues", Integer::class.java, Array<String>::class.java),
+        SignalInfo("on_media_request_observed", Integer::class.java, String::class.java)
     )
 
     private val exoPlayers = ConcurrentHashMap<Int, ExoPlayer>()
@@ -81,7 +82,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             require(surface.isValid) { "OpenXR composition-layer surface is not valid" }
             val playerConfig = buildPlayerConfig(id, config)
             val context = activity as Context
-            val dataSourceFactory = buildDataSourceFactory(context, playerConfig)
+            val dataSourceFactory = buildDataSourceFactory(context, id, playerConfig)
 
             exoPlayers.remove(id)?.release()
             programDateTimes[id] = ""
@@ -209,7 +210,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
                 throw IllegalArgumentException("routeAudioToGodot cannot be changed with setMedia; recreate the player")
             }
             val context = activity as Context
-            val dataSourceFactory = buildDataSourceFactory(context, playerConfig)
+            val dataSourceFactory = buildDataSourceFactory(context, id, playerConfig)
 
             audioBuffers[id]?.clear()
             player.setMediaSource(
@@ -537,6 +538,11 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
                     getInt(bufferData, "bufferForPlaybackMs", -1), getInt(bufferData, "bufferForPlaybackAfterRebufferMs", -1)
                 )
             } else defaults?.bufferDurations,
+            observedUrlPattern = if (data.containsKey("observedUrlPattern")) {
+                val pattern = getString(data, "observedUrlPattern")
+                    ?: throw IllegalArgumentException("observedUrlPattern must be a string")
+                ObservedUrlPattern.from(pattern)
+            } else defaults?.observedUrlPattern,
             drm = when {
                 getBoolean(data, "clearDrm", false) -> null
                 getDictionary(data, "drm") != null -> buildDrmConfig(getDictionary(data, "drm")!!)
@@ -641,7 +647,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         return downloadCache!!
     }
 
-    private fun buildDataSourceFactory(context: Context, config: PlayerConfig): DataSource.Factory {
+    private fun buildDataSourceFactory(context: Context, id: Int, config: PlayerConfig): DataSource.Factory {
         val upstreamFactory = DefaultDataSource.Factory(
             context,
             getHttpDataSourceFactory(
@@ -650,11 +656,42 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
                 config.allowCrossProtocolRedirects
             )
         )
-        return if (config.useCache) {
+        val factory: DataSource.Factory = if (config.useCache) {
             buildReadOnlyCacheDataSource(upstreamFactory, getDownloadCache(context, config.cacheMaxBytes))
         } else {
             upstreamFactory
         }
+        val pattern = config.observedUrlPattern ?: return factory
+        return ObservingDataSourceFactory(factory) { url ->
+            if (pattern.matches(url)) {
+                runOnUiThread { emitSignal("on_media_request_observed", id, url) }
+            }
+        }
+    }
+
+    private class ObservingDataSourceFactory(
+        private val upstream: DataSource.Factory,
+        private val onOpen: (String) -> Unit
+    ) : DataSource.Factory {
+        override fun createDataSource(): DataSource = ObservingDataSource(upstream.createDataSource(), onOpen)
+    }
+
+    private class ObservingDataSource(
+        private val upstream: DataSource,
+        private val onOpen: (String) -> Unit
+    ) : DataSource {
+        override fun addTransferListener(transferListener: androidx.media3.datasource.TransferListener) =
+            upstream.addTransferListener(transferListener)
+
+        override fun open(dataSpec: DataSpec): Long {
+            onOpen(dataSpec.uri.toString())
+            return upstream.open(dataSpec)
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int = upstream.read(buffer, offset, length)
+        override fun getUri(): Uri? = upstream.uri
+        override fun close() = upstream.close()
+        override fun getResponseHeaders(): Map<String, List<String>> = upstream.responseHeaders
     }
 
     private fun buildMediaSourceFactory(context: Context, dataSourceFactory: DataSource.Factory): MediaSource.Factory {
