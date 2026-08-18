@@ -22,8 +22,8 @@ var _managed_audio_players : Dictionary = {}
 const DEFAULT_GODOT_AUDIO_BUFFER_LENGTH := 0.5
 const DEFAULT_GODOT_AUDIO_MIX_RATE := 48000
 const GODOT_AUDIO_POLL_FRAMES := 2048
-const AUDIO_RESYNC_THRESHOLD_FRAMES := 90_000
-const AUDIO_RESYNC_STRIKES := 90
+const AUDIO_RESYNC_THRESHOLD_RATIO := 0.9375
+const AUDIO_RESYNC_SATURATION_MS := 1500
 const STATE_IDLE := 1
 const STATE_BUFFERING := 2
 const STATE_READY := 3
@@ -68,7 +68,7 @@ func create_player(android_surface, video_uri: String, options: Dictionary = {})
 			"godot_audio_buffer_length": float(config.get("godotAudioBufferLength", DEFAULT_GODOT_AUDIO_BUFFER_LENGTH)),
 			"logical_volume": float(config.get("volume", 1.0)),
 			"spatial_audio_mode": int(config.get("spatialAudioMode", 0)),
-			"audio_resync_strikes": 0
+			"audio_resync_saturated_since_msec": 0
 		}
 
 		if players[new_id].route_audio_to_godot:
@@ -539,18 +539,27 @@ func _clear_godot_audio_buffer(id: int) -> void:
 	if playbacks_list.size() > 0:
 		players[id].godot_audio_playback = playbacks_list[0]
 
-static func _next_audio_resync_strike(queued_frames: int, strikes: int, threshold: int) -> int:
-	return strikes + 1 if queued_frames >= threshold else 0
+static func _audio_resync_saturated_since_msec(queued_frames: int, max_queued_frames: int, now_msec: int, saturated_since_msec: int) -> int:
+	if max_queued_frames <= 0 or queued_frames < int(max_queued_frames * AUDIO_RESYNC_THRESHOLD_RATIO):
+		return 0
+	return saturated_since_msec if saturated_since_msec > 0 else now_msec
 
 func _audio_resync_guard(id: int) -> void:
 	if not _android_plugin or not players.has(id):
 		return
-	var queued := int((_android_plugin.getAudioFormat(id) as Dictionary).get("queuedFrames", 0))
-	var strikes := _next_audio_resync_strike(queued, int(players[id].get("audio_resync_strikes", 0)), AUDIO_RESYNC_THRESHOLD_FRAMES)
-	players[id]["audio_resync_strikes"] = strikes
-	if strikes >= AUDIO_RESYNC_STRIKES:
+	var format := _android_plugin.getAudioFormat(id) as Dictionary
+	var queued := int(format.get("queuedFrames", 0))
+	var now_msec := Time.get_ticks_msec()
+	var saturated_since_msec := _audio_resync_saturated_since_msec(
+		queued,
+		int(format.get("maxQueuedFrames", 0)),
+		now_msec,
+		int(players[id].get("audio_resync_saturated_since_msec", 0))
+	)
+	players[id]["audio_resync_saturated_since_msec"] = saturated_since_msec
+	if saturated_since_msec > 0 and now_msec - saturated_since_msec >= AUDIO_RESYNC_SATURATION_MS:
 		_clear_godot_audio_buffer(id)
-		players[id]["audio_resync_strikes"] = 0
+		players[id]["audio_resync_saturated_since_msec"] = 0
 		emit_signal("audio_resynced", id, queued)
 
 func _apply_godot_audio_volume(id: int) -> void:

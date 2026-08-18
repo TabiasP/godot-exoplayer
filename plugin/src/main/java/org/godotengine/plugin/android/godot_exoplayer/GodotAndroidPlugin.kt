@@ -66,6 +66,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     private val playerConfigurations = ConcurrentHashMap<Int, PlayerConfig>()
     private val programDateTimes = ConcurrentHashMap<Int, String>()
     private val audioBuffers = ConcurrentHashMap<Int, GodotPcmBuffer>()
+    private val playerSurfaces = ConcurrentHashMap<Int, Surface>()
 
     private var downloadDirectory: File? = null
     private var downloadCache: Cache? = null
@@ -85,24 +86,10 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             val dataSourceFactory = buildDataSourceFactory(context, id, playerConfig)
 
             exoPlayers.remove(id)?.release()
+            playerSurfaces[id] = surface
             programDateTimes[id] = ""
 
-            val playerBuilder = ExoPlayer.Builder(context)
-                .setMediaSourceFactory(buildMediaSourceFactory(context, dataSourceFactory))
-            playerConfig.bufferDurations?.let { durations ->
-                playerBuilder.setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(
-                    durations.minBufferMs, durations.maxBufferMs,
-                    durations.bufferForPlaybackMs, durations.bufferForPlaybackAfterRebufferMs
-                ).build())
-            }
-            if (playerConfig.routeAudioToGodot) {
-                playerBuilder.setRenderersFactory(
-                    GodotAudioRenderersFactory(context, audioBuffers.getOrPut(id) { GodotPcmBuffer() })
-                )
-            } else {
-                audioBuffers.remove(id)
-            }
-            val player = playerBuilder.build()
+            val player = buildPlayer(context, id, playerConfig, dataSourceFactory)
 
             configurePlayer(id, player, playerConfig, surface)
             player.prepare()
@@ -139,6 +126,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             drmConfigurations.remove(id)
             programDateTimes.remove(id)
             audioBuffers.remove(id)
+            playerSurfaces.remove(id)
             updateGlobalLogLevel()
             Log.v(pluginName, "ExoPlayer($id) released and removed.")
         } ?: Log.e(pluginName, "ExoPlayer($id) not found when attempting to release")
@@ -205,19 +193,34 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     fun setMedia(id: Int, config: Dictionary) = runOnUiThread {
         val player = exoPlayers[id] ?: return@runOnUiThread logNotFound(id, "setMedia")
         try {
-            val playerConfig = buildPlayerConfig(id, config, playerConfigurations[id])
-            if (playerConfig.routeAudioToGodot != playerConfigurations[id]?.routeAudioToGodot) {
+            val previousConfig = playerConfigurations[id]
+                ?: throw IllegalStateException("Missing saved configuration for ExoPlayer($id)")
+            val playerConfig = buildPlayerConfig(id, config, previousConfig)
+            if (playerConfig.routeAudioToGodot != previousConfig.routeAudioToGodot) {
                 throw IllegalArgumentException("routeAudioToGodot cannot be changed with setMedia; recreate the player")
             }
             val context = activity as Context
             val dataSourceFactory = buildDataSourceFactory(context, id, playerConfig)
 
             audioBuffers[id]?.clear()
-            player.setMediaSource(
-                buildMediaSourceFactory(context, dataSourceFactory)
-                    .createMediaSource(buildMediaItem(playerConfig))
-            )
-            player.prepare()
+            val activePlayer = if (playerConfig.bufferDurations != previousConfig.bufferDurations) {
+                val surface = playerSurfaces[id]
+                    ?: throw IllegalStateException("Cannot change bufferDurations after the video surface was cleared")
+                val replacement = buildPlayer(context, id, playerConfig, dataSourceFactory)
+                configurePlayer(id, replacement, playerConfig, surface)
+                exoPlayers[id] = replacement
+                player.release()
+                replacement.prepare()
+                Log.v(pluginName, "ExoPlayer($id) rebuilt to apply updated buffer durations")
+                replacement
+            } else {
+                player.setMediaSource(
+                    buildMediaSourceFactory(context, dataSourceFactory)
+                        .createMediaSource(buildMediaItem(playerConfig))
+                )
+                player.prepare()
+                player
+            }
             playerConfigurations[id] = playerConfig
             updateGlobalLogLevel()
             programDateTimes[id] = ""
@@ -226,7 +229,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
                 parseProgramDateTimeAsync(id, playerConfig.uri, dataSourceFactory)
             }
             if (playerConfig.autoplay) {
-                player.play()
+                activePlayer.play()
             }
 
             Log.v(pluginName, "ExoPlayer($id) media changed to: ${MediaUrlLog.redact(playerConfig.uri.toString())}")
@@ -268,6 +271,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             put("channelCount", 0)
             put("encoding", C.ENCODING_INVALID)
             put("queuedFrames", 0)
+            put("maxQueuedFrames", 0)
         }
     }
 
@@ -282,11 +286,13 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             emitAndLogError(id, "Cannot attach an invalid OpenXR composition-layer surface")
             return@runOnUiThread
         }
+        playerSurfaces[id] = surface
         exoPlayers[id]?.setVideoSurface(surface) ?: logNotFound(id, "setSurface")
     }
 
     @UsedByGodot
     fun clearSurface(id: Int) = runOnUiThread {
+        playerSurfaces.remove(id)
         exoPlayers[id]?.clearVideoSurface() ?: logNotFound(id, "clearSurface")
     }
 
@@ -458,6 +464,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             playerConfigurations.clear()
             programDateTimes.clear()
             audioBuffers.clear()
+            playerSurfaces.clear()
             downloadCache?.release()
             downloadCache = null
             databaseProvider = null
@@ -499,6 +506,30 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         if (config.debugLogging) {
             player.addAnalyticsListener(EventLogger())
         }
+    }
+
+    private fun buildPlayer(
+        context: Context,
+        id: Int,
+        config: PlayerConfig,
+        dataSourceFactory: DataSource.Factory
+    ): ExoPlayer {
+        val playerBuilder = ExoPlayer.Builder(context)
+            .setMediaSourceFactory(buildMediaSourceFactory(context, dataSourceFactory))
+        config.bufferDurations?.let { durations ->
+            playerBuilder.setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(
+                durations.minBufferMs, durations.maxBufferMs,
+                durations.bufferForPlaybackMs, durations.bufferForPlaybackAfterRebufferMs
+            ).build())
+        }
+        if (config.routeAudioToGodot) {
+            playerBuilder.setRenderersFactory(
+                GodotAudioRenderersFactory(context, audioBuffers.getOrPut(id) { GodotPcmBuffer() })
+            )
+        } else {
+            audioBuffers.remove(id)
+        }
+        return playerBuilder.build()
     }
 
     private fun buildPlayerConfig(id: Int, data: Dictionary, defaults: PlayerConfig? = null): PlayerConfig {
