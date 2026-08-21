@@ -68,6 +68,7 @@ func create_player(android_surface, video_uri: String, options: Dictionary = {})
 			"godot_audio_buffer_length": float(config.get("godotAudioBufferLength", DEFAULT_GODOT_AUDIO_BUFFER_LENGTH)),
 			"logical_volume": float(config.get("volume", 1.0)),
 			"spatial_audio_mode": int(config.get("spatialAudioMode", 0)),
+			"native_is_playing": false,
 			"audio_resync_saturated_since_msec": 0
 		}
 
@@ -397,8 +398,9 @@ func _pump_godot_audio(id: int) -> void:
 	if players_list.size() == 0:
 		return
 
-	_update_godot_audio_format(id)
-	_audio_resync_guard(id)
+	var format := _android_plugin.getAudioFormat(id) as Dictionary
+	_update_godot_audio_format(id, format)
+	_audio_resync_guard(id, format)
 
 	var playbacks_list = players[id].godot_audio_playbacks
 	for i in range(players_list.size()):
@@ -464,8 +466,7 @@ func _pump_godot_audio(id: int) -> void:
 			if playback != null:
 				playback.push_buffer(frames)
 
-func _update_godot_audio_format(id: int) -> void:
-	var format: Dictionary = _android_plugin.getAudioFormat(id)
+func _update_godot_audio_format(id: int, format: Dictionary) -> void:
 	var sample_rate := int(format.get("sampleRate", 0))
 	if sample_rate <= 0 or sample_rate == int(players[id].godot_audio_sample_rate):
 		return
@@ -544,12 +545,11 @@ static func _audio_resync_saturated_since_msec(queued_frames: int, max_queued_fr
 		return 0
 	return saturated_since_msec if saturated_since_msec > 0 else now_msec
 
-func _audio_resync_guard(id: int) -> void:
-	if not _android_plugin or not players.has(id) or not _android_plugin.isPlaying(id):
+func _audio_resync_guard(id: int, format: Dictionary) -> void:
+	if not _android_plugin or not players.has(id) or not bool(players[id].get("native_is_playing", false)):
 		if players.has(id):
 			players[id]["audio_resync_saturated_since_msec"] = 0
 		return
-	var format := _android_plugin.getAudioFormat(id) as Dictionary
 	var queued := int(format.get("queuedFrames", 0))
 	var now_msec := Time.get_ticks_msec()
 	var saturated_since_msec := _audio_resync_saturated_since_msec(
@@ -617,6 +617,7 @@ func connect_plugin_signals() -> void:
 		_android_plugin.connect("on_player_error", _on_player_error)
 		_android_plugin.connect("on_video_end", _on_video_end)
 		_android_plugin.connect("on_player_state_changed", _on_player_state_changed)
+		_android_plugin.connect("on_is_playing_changed", _on_is_playing_changed)
 		_android_plugin.connect("on_subtitle_cues", _on_subtitle_cues)
 		_android_plugin.connect("on_media_request_observed", _on_media_request_observed)
 
@@ -649,6 +650,12 @@ func _on_player_state_changed(id: int, state: int) -> void:
 	if players.has(id):
 		players[id].state = state
 	emit_signal("player_state_changed", id, state)
+
+func _on_is_playing_changed(id: int, is_playing: bool) -> void:
+	if players.has(id):
+		players[id].native_is_playing = is_playing
+		if not is_playing:
+			players[id].audio_resync_saturated_since_msec = 0
 
 func _on_subtitle_cues(id: int, cues: Array) -> void:
 	emit_signal("subtitle_cues", id, PackedStringArray(cues))

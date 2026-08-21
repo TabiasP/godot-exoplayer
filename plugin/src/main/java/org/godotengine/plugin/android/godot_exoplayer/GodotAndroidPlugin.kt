@@ -57,6 +57,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
         SignalInfo("on_video_end", Integer::class.java),
         SignalInfo("on_player_error", Integer::class.java, String::class.java),
         SignalInfo("on_player_state_changed", Integer::class.java, Integer::class.java),
+        SignalInfo("on_is_playing_changed", Integer::class.java, java.lang.Boolean::class.java),
         SignalInfo("on_subtitle_cues", Integer::class.java, Array<String>::class.java),
         SignalInfo("on_media_request_observed", Integer::class.java, String::class.java)
     )
@@ -196,6 +197,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             val previousConfig = playerConfigurations[id]
                 ?: throw IllegalStateException("Missing saved configuration for ExoPlayer($id)")
             val playerConfig = buildPlayerConfig(id, config, previousConfig)
+            val shouldPlayWhenReady = playerConfig.autoplay || player.playWhenReady
             if (playerConfig.routeAudioToGodot != previousConfig.routeAudioToGodot) {
                 throw IllegalArgumentException("routeAudioToGodot cannot be changed with setMedia; recreate the player")
             }
@@ -228,7 +230,7 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
             if (playerConfig.parseProgramDateTime) {
                 parseProgramDateTimeAsync(id, playerConfig.uri, dataSourceFactory)
             }
-            if (playerConfig.autoplay) {
+            if (shouldPlayWhenReady) {
                 activePlayer.play()
             }
 
@@ -764,6 +766,10 @@ class GodotAndroidPlugin(godot: Godot) : GodotPlugin(godot) {
     }
 
     private fun createPlayerListener(id: Int) = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            emitSignal("on_is_playing_changed", id, isPlaying)
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 Player.STATE_READY -> {
