@@ -545,7 +545,9 @@ static func _audio_resync_saturated_since_msec(queued_frames: int, max_queued_fr
 	return saturated_since_msec if saturated_since_msec > 0 else now_msec
 
 func _audio_resync_guard(id: int) -> void:
-	if not _android_plugin or not players.has(id):
+	if not _android_plugin or not players.has(id) or not _android_plugin.isPlaying(id):
+		if players.has(id):
+			players[id]["audio_resync_saturated_since_msec"] = 0
 		return
 	var format := _android_plugin.getAudioFormat(id) as Dictionary
 	var queued := int(format.get("queuedFrames", 0))

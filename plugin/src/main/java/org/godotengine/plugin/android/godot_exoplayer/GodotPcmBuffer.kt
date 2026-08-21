@@ -49,12 +49,17 @@ internal class GodotPcmBuffer {
                 left = 0f
                 right = 0f
                 if (channelMask == AudioFormat.CHANNEL_INVALID) {
-                    // Unsupported layouts retain the legacy channel-0/channel-1 stereo behavior.
+                    // Unsupported layouts retain the legacy first-two-channel mapping and
+                    // accumulate every remaining channel into both stereo outputs.
                     for (channel in 0 until channelCount) {
                         val sample = readSample(source, encoding)
                         when (channel) {
                             0 -> left = sample
                             1 -> right = sample
+                            else -> {
+                                left += sample * DOWNMIX_GAIN
+                                right += sample * DOWNMIX_GAIN
+                            }
                         }
                     }
                 } else {
